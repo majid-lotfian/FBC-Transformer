@@ -1,0 +1,6 @@
+canonical_name,display_name,feature_group,data_type,unit,allowed_min,allowed_max,normalization,log_transform_allowed,description,model_input
+hemoglobin,Hemoglobin,CBC,continuous,g/dL,0,25,zscore,yes,Hemoglobin concentration,yes
+wbc,White Blood Cell Count,CBC,continuous,10^9/L,0,500,log_zscore,yes,White blood cell count,yes
+platelets,Platelet Count,CBC,continuous,10^9/L,0,3000,log_zscore,yes,Platelet count,yes
+crp,C Reactive Protein,Inflammation,continuous,mg/L,0,1000,log_zscore,yes,C-reactive protein,yes
+ferritin,Ferritin,Iron,continuous,ug/L,0,100000,log_zscore,yes,Ferritin concentration,yes

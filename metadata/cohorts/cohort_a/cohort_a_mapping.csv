@@ -1,0 +1,6 @@
+local_name,canonical_name,mapping_status,conversion_rule,notes
+Hb,hemoglobin,exact,none,Direct match
+WBC,wbc,exact,none,Direct match
+PLT,platelets,alias,none,Common abbreviation
+CRP,crp,exact,none,Direct match
+Ferritine,ferritin,alias,none,Spelling variant

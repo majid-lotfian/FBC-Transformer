@@ -1,0 +1,14 @@
+train:
+  epochs: 3
+  learning_rate: 1.0e-3
+  weight_decay: 1.0e-4
+  gradient_clip_norm: 1.0
+  scheduler: cosine
+  warmup_steps: 0
+  validation_every: 1
+
+objective:
+  name: masked_modeling
+  mask_ratio: 0.15
+  continuous_loss: mse
+  categorical_loss: cross_entropy

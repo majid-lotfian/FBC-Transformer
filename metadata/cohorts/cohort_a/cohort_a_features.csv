@@ -1,0 +1,6 @@
+local_name,local_display_name,data_type,unit,raw_description,category,present_in_data
+Hb,Hemoglobin,continuous,g/dL,Hemoglobin result,CBC,yes
+WBC,White blood cells,continuous,10^9/L,White blood cell count,CBC,yes
+PLT,Platelets,continuous,10^9/L,Platelet count,CBC,yes
+CRP,C-reactive protein,continuous,mg/L,CRP lab value,Inflammation,yes
+Ferritine,Ferritin,continuous,ug/L,Ferritin lab value,Iron,yes

@@ -1,0 +1,14 @@
+data:
+  raw_data_path: metadata/cohorts/cohort_a/sample_data.csv
+  canonical_features_path: metadata/canonical_features.csv
+  cohort_features_path: metadata/cohorts/cohort_a/cohort_a_features.csv
+  cohort_mapping_path: metadata/cohorts/cohort_a/cohort_a_mapping.csv
+
+  target_columns: []
+  batch_size: 32
+  num_workers: 0
+  train_fraction: 0.8
+  value_fill_strategy: zero
+  normalization:
+    enabled: true
+    mode: zscore

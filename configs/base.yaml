@@ -1,0 +1,16 @@
+experiment:
+  name: blood_foundation_v1
+  seed: 42
+  device: auto
+
+cohort:
+  name: cohort_a
+
+paths:
+  artifacts_root: artifacts
+
+run:
+  do_train: true
+  do_validate: true
+  save_plots: true
+  save_tables: true

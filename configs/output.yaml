@@ -1,0 +1,6 @@
+output:
+  checkpoint_every: 1
+  keep_last_n: 3
+  write_metrics_csv: true
+  write_summary_json: true
+  log_to_console: true
