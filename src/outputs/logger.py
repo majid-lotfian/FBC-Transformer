@@ -4,12 +4,21 @@ import logging
 from pathlib import Path
 
 
-def setup_logging(log_file: Path, to_console: bool = True) -> None:
+def setup_logging(
+    log_file: Path,
+    *,
+    to_console: bool = True,
+    level: int = logging.INFO,
+) -> None:
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
     handlers = [logging.FileHandler(log_file, encoding="utf-8")]
+
     if to_console:
         handlers.append(logging.StreamHandler())
+
     logging.basicConfig(
-        level=logging.INFO,
+        level=level,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         handlers=handlers,
         force=True,
