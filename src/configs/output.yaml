@@ -1,0 +1,6 @@
+output:
+  log_to_console: true
+
+  write_metrics_csv: true
+  save_plots: true
+  write_summary_json: true
