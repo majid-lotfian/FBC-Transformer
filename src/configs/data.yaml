@@ -1,0 +1,11 @@
+data:
+  raw_data_path: data/amsterdam_small.csv
+  schema_path: data/schema.xlsx
+
+  subset_fraction: 0.01
+  train_fraction: 0.8
+
+  strict_mapping: false
+  treat_dash_as_missing: false
+
+  exclude_columns: []
