@@ -30,6 +30,14 @@ from src.outputs.plots import plot_metric_history
 from src.outputs.tables import write_metrics_table
 
 
+def maybe_subset_dataframe(df, subset_fraction, seed):
+    if subset_fraction is None or subset_fraction >= 1.0:
+        return df
+    if subset_fraction <= 0:
+        raise ValueError("subset_fraction must be > 0 and <= 1.")
+    return df.sample(frac=subset_fraction, random_state=seed).reset_index(drop=True)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Blood foundation model v1")
     parser.add_argument("--config-dir", type=str, default="configs")
