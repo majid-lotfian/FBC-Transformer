@@ -1,53 +1,90 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List
+from typing import Optional
 
-import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
 
 @dataclass
-class SampleItem:
+class TabularSample:
     values: torch.Tensor
     observed_mask: torch.Tensor
-    cohort_id: int
+    feature_names: list[str]
+    sample_id: Optional[str] = None
+    cohort_name: Optional[str] = None
 
 
-class TabularFeatureDataset(Dataset):
-    def __init__(self, dataframe: pd.DataFrame, feature_names: List[str], cohort_id: int) -> None:
+class TabularFoundationDataset(Dataset):
+    """
+    Row-wise dataset for canonical tabular data.
+
+    Expected input dataframe:
+    - one row = one sample
+    - columns = canonical feature names (plus optional excluded columns not passed in)
+    """
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        *,
+        feature_names: Optional[list[str]] = None,
+        sample_id_column: Optional[str] = None,
+        cohort_name: Optional[str] = None,
+    ) -> None:
+        self.df = df.reset_index(drop=True).copy()
+        self.sample_id_column = sample_id_column
+        self.cohort_name = cohort_name
+
+        if feature_names is None:
+            feature_names = list(self.df.columns)
+
+        if sample_id_column is not None and sample_id_column in feature_names:
+            raise ValueError(
+                f"sample_id_column '{sample_id_column}' must not be included in feature_names."
+            )
+
+        missing_features = [col for col in feature_names if col not in self.df.columns]
+        if missing_features:
+            raise ValueError(
+                f"Dataset is missing requested feature columns: {missing_features}"
+            )
+
         self.feature_names = feature_names
-        self.cohort_id = cohort_id
-        self.dataframe = dataframe.copy()
+        self.feature_df = self.df[self.feature_names]
 
-        for feature in feature_names:
-            if feature not in self.dataframe.columns:
-                self.dataframe[feature] = np.nan
+        self.values = torch.tensor(
+            self.feature_df.to_numpy(dtype="float32"),
+            dtype=torch.float32,
+        )
 
-        self.dataframe = self.dataframe[feature_names]
+        self.observed_mask = ~torch.isnan(self.values)
 
     def __len__(self) -> int:
-        return len(self.dataframe)
+        return len(self.df)
 
-    def __getitem__(self, idx: int) -> SampleItem:
-        row = self.dataframe.iloc[idx]
-        values = torch.tensor(row.fillna(0.0).to_numpy(dtype=float), dtype=torch.float32)
-        observed_mask = torch.tensor((~row.isna()).to_numpy(dtype=bool), dtype=torch.bool)
-        return SampleItem(values=values, observed_mask=observed_mask, cohort_id=self.cohort_id)
+    def __getitem__(self, index: int) -> dict:
+        row_values = self.values[index]
+        row_observed_mask = self.observed_mask[index]
 
-    def make_dataloader(
-        self,
-        batch_size: int,
-        num_workers: int,
-        shuffle: bool,
-        collate_fn: Callable,
-    ) -> DataLoader:
-        return DataLoader(
-            self,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            num_workers=num_workers,
-            collate_fn=collate_fn,
+        sample_id = None
+        if self.sample_id_column is not None:
+            sample_id = str(self.df.iloc[index][self.sample_id_column])
+
+        sample = TabularSample(
+            values=row_values,
+            observed_mask=row_observed_mask,
+            feature_names=self.feature_names,
+            sample_id=sample_id,
+            cohort_name=self.cohort_name,
         )
+
+        return {
+            "values": sample.values,
+            "observed_mask": sample.observed_mask,
+            "feature_names": sample.feature_names,
+            "sample_id": sample.sample_id,
+            "cohort_name": sample.cohort_name,
+        }
