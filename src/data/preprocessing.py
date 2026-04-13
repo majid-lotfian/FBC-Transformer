@@ -3,13 +3,20 @@ from __future__ import annotations
 import pandas as pd
 
 
-def preprocess_dataframe(df: pd.DataFrame, canonical_features: pd.DataFrame) -> pd.DataFrame:
-    processed = df.copy()
-    valid_features = set(canonical_features["canonical_name"].astype(str))
+def basic_preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    processed_df = df.copy()
 
-    for column in list(processed.columns):
-        if column not in valid_features:
-            continue
-        processed[column] = pd.to_numeric(processed[column], errors="coerce")
+    missing_tokens = {
+        "",
+        " ",
+        "na",
+        "n/a",
+        "nan",
+        "null",
+        "none",
+        "-",
+    }
 
-    return processed
+    processed_df = processed_df.replace(list(missing_tokens), pd.NA)
+
+    return processed_df
