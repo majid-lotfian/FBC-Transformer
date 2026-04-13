@@ -65,6 +65,12 @@ def run() -> None:
     # 2. Load raw cohort data
     raw_df = pd.read_csv(cfg.data.raw_data_path)
 
+    raw_df = maybe_subset_dataframe(
+        raw_df,
+        subset_fraction=cfg.data.subset_fraction,
+        seed=cfg.experiment.seed,
+    )
+
     # 3. Map to canonical feature space
     canonical_df = build_canonical_dataframe(
         raw_df,
