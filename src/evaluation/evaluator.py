@@ -1,13 +1,27 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict
 
 
-def summarize_history(history: List[Dict[str, float]]) -> Dict[str, float]:
-    if not history:
-        return {}
-    last = history[-1]
-    return {
-        "final_train_loss": float(last["train_loss"]),
-        "final_val_loss": float(last["val_loss"]),
-    }
+def summarize_history(history) -> Dict[str, float]:
+    summary = {}
+
+    if history.train_loss:
+        summary["final_train_loss"] = float(history.train_loss[-1])
+
+    if history.train_reconstruction_loss:
+        summary["final_train_reconstruction_loss"] = float(history.train_reconstruction_loss[-1])
+
+    if history.train_reconstruction_mae:
+        summary["final_train_reconstruction_mae"] = float(history.train_reconstruction_mae[-1])
+
+    if history.val_loss:
+        summary["final_val_loss"] = float(history.val_loss[-1])
+
+    if history.val_reconstruction_loss:
+        summary["final_val_reconstruction_loss"] = float(history.val_reconstruction_loss[-1])
+
+    if history.val_reconstruction_mae:
+        summary["final_val_reconstruction_mae"] = float(history.val_reconstruction_mae[-1])
+
+    return summary
