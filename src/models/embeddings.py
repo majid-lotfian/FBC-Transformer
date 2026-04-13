@@ -1,48 +1,95 @@
 from __future__ import annotations
 
 import torch
-from torch import nn
+import torch.nn as nn
+
+
+class FeatureEmbedding(nn.Module):
+    """
+    Embeds feature IDs (which feature is this)
+    """
+
+    def __init__(self, num_features: int, d_model: int) -> None:
+        super().__init__()
+        self.embedding = nn.Embedding(num_features, d_model)
+
+    def forward(self, feature_ids: torch.Tensor) -> torch.Tensor:
+        # feature_ids: [B, F]
+        return self.embedding(feature_ids)  # [B, F, d_model]
 
 
 class ValueEmbedding(nn.Module):
-    def __init__(self, d_model: int, hidden_dim: int = 64) -> None:
+    """
+    Embeds scalar feature values into vector space
+    """
+
+    def __init__(self, d_model: int) -> None:
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(1, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, d_model),
-        )
+        self.linear = nn.Linear(1, d_model)
 
     def forward(self, values: torch.Tensor) -> torch.Tensor:
-        return self.net(values.unsqueeze(-1))
+        # values: [B, F]
+        values = values.unsqueeze(-1)  # [B, F, 1]
+        return self.linear(values)    # [B, F, d_model]
 
 
-class TokenEmbedding(nn.Module):
+class MaskEmbedding(nn.Module):
+    """
+    Embeds mask state (observed vs missing)
+    """
+
+    def __init__(self, d_model: int) -> None:
+        super().__init__()
+        self.embedding = nn.Embedding(2, d_model)
+
+    def forward(self, observed_mask: torch.Tensor) -> torch.Tensor:
+        # observed_mask: [B, F] bool
+        mask_ids = observed_mask.long()  # 0 or 1
+        return self.embedding(mask_ids)  # [B, F, d_model]
+
+
+class TabularEmbedding(nn.Module):
+    """
+    Combines:
+    - feature identity
+    - feature value
+    - observed/missing state
+    """
+
     def __init__(
         self,
         num_features: int,
         d_model: int,
-        use_cohort_embedding: bool = True,
-        num_states: int = 4,
-        num_cohorts: int = 16,
     ) -> None:
         super().__init__()
-        self.feature_embedding = nn.Embedding(num_features, d_model)
-        self.state_embedding = nn.Embedding(num_states, d_model)
-        self.value_embedding = ValueEmbedding(d_model=d_model)
-        self.use_cohort_embedding = use_cohort_embedding
-        self.cohort_embedding = nn.Embedding(num_cohorts, d_model) if use_cohort_embedding else None
+
+        self.feature_embedding = FeatureEmbedding(num_features, d_model)
+        self.value_embedding = ValueEmbedding(d_model)
+        self.mask_embedding = MaskEmbedding(d_model)
+
+        self.layer_norm = nn.LayerNorm(d_model)
 
     def forward(
         self,
         feature_ids: torch.Tensor,
         values: torch.Tensor,
-        state_ids: torch.Tensor,
-        cohort_ids: torch.Tensor,
+        observed_mask: torch.Tensor,
     ) -> torch.Tensor:
-        x = self.feature_embedding(feature_ids)
-        x = x + self.state_embedding(state_ids)
-        x = x + self.value_embedding(values)
-        if self.use_cohort_embedding and self.cohort_embedding is not None:
-            x = x + self.cohort_embedding(cohort_ids).unsqueeze(1)
+        """
+        Inputs:
+        - feature_ids: [B, F]
+        - values: [B, F]
+        - observed_mask: [B, F]
+
+        Output:
+        - embeddings: [B, F, d_model]
+        """
+
+        f_emb = self.feature_embedding(feature_ids)
+        v_emb = self.value_embedding(values)
+        m_emb = self.mask_embedding(observed_mask)
+
+        x = f_emb + v_emb + m_emb
+        x = self.layer_norm(x)
+
         return x
