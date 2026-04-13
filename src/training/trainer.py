@@ -1,80 +1,153 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Dict, List
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 import torch
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
-from src.training.engine import move_batch_to_device
-from src.training.checkpoint import save_checkpoint
-from src.training.metrics import average_metric_dict
+from .engine import train_step, validation_step
+
+
+@dataclass
+class EpochHistory:
+    train_loss: List[float] = field(default_factory=list)
+    train_reconstruction_loss: List[float] = field(default_factory=list)
+    train_reconstruction_mae: List[float] = field(default_factory=list)
+
+    val_loss: List[float] = field(default_factory=list)
+    val_reconstruction_loss: List[float] = field(default_factory=list)
+    val_reconstruction_mae: List[float] = field(default_factory=list)
+
+
+def _average_metrics(step_outputs: List[Dict[str, float]]) -> Dict[str, float]:
+    if not step_outputs:
+        return {}
+
+    keys = step_outputs[0].keys()
+    return {
+        key: float(sum(step[key] for step in step_outputs) / len(step_outputs))
+        for key in keys
+    }
 
 
 class Trainer:
+    """
+    High-level training loop manager for v1 masked-feature-modeling pretraining.
+    """
+
     def __init__(
         self,
-        model,
+        *,
+        model: torch.nn.Module,
         objective_manager,
-        optimizer,
-        scheduler,
+        optimizer: torch.optim.Optimizer,
         device: torch.device,
-        checkpoint_dir: Path,
-        gradient_clip_norm: float = 1.0,
+        grad_clip_norm: Optional[float] = None,
+        scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
     ) -> None:
         self.model = model
         self.objective_manager = objective_manager
         self.optimizer = optimizer
-        self.scheduler = scheduler
         self.device = device
-        self.checkpoint_dir = checkpoint_dir
-        self.gradient_clip_norm = gradient_clip_norm
+        self.grad_clip_norm = grad_clip_norm
+        self.scheduler = scheduler
 
-    def fit(self, train_loader, val_loader, epochs: int, checkpoint_every: int = 1) -> List[Dict[str, float]]:
-        history: List[Dict[str, float]] = []
-        for epoch in range(1, epochs + 1):
-            train_metrics = self._run_epoch(train_loader, train=True)
-            val_metrics = self._run_epoch(val_loader, train=False)
-            epoch_metrics = {
-                "epoch": float(epoch),
-                "train_loss": train_metrics["loss"],
-                "val_loss": val_metrics["loss"],
-            }
-            history.append(epoch_metrics)
+        self.model.to(self.device)
 
-            if self.scheduler is not None:
-                self.scheduler.step()
+    def train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
+        step_outputs: List[Dict[str, float]] = []
 
-            if epoch % checkpoint_every == 0:
-                save_checkpoint(
-                    checkpoint_dir=self.checkpoint_dir,
-                    epoch=epoch,
-                    model=self.model,
-                    optimizer=self.optimizer,
-                    scheduler=self.scheduler,
+        progress_bar = tqdm(train_loader, desc="Training", leave=False)
+
+        for batch in progress_bar:
+            metrics = train_step(
+                model=self.model,
+                batch=batch,
+                objective_manager=self.objective_manager,
+                optimizer=self.optimizer,
+                device=self.device,
+                grad_clip_norm=self.grad_clip_norm,
+            )
+            step_outputs.append(metrics)
+
+            progress_bar.set_postfix(
+                loss=f"{metrics['loss']:.4f}",
+                recon=f"{metrics['reconstruction_loss']:.4f}",
+                mae=f"{metrics['reconstruction_mae']:.4f}",
+            )
+
+        epoch_metrics = _average_metrics(step_outputs)
+
+        if self.scheduler is not None:
+            self.scheduler.step()
+
+        return epoch_metrics
+
+    def validate_epoch(self, val_loader: DataLoader) -> Dict[str, float]:
+        step_outputs: List[Dict[str, float]] = []
+
+        progress_bar = tqdm(val_loader, desc="Validation", leave=False)
+
+        for batch in progress_bar:
+            metrics = validation_step(
+                model=self.model,
+                batch=batch,
+                objective_manager=self.objective_manager,
+                device=self.device,
+            )
+            step_outputs.append(metrics)
+
+            progress_bar.set_postfix(
+                loss=f"{metrics['loss']:.4f}",
+                recon=f"{metrics['reconstruction_loss']:.4f}",
+                mae=f"{metrics['reconstruction_mae']:.4f}",
+            )
+
+        return _average_metrics(step_outputs)
+
+    def fit(
+        self,
+        *,
+        train_loader: DataLoader,
+        val_loader: Optional[DataLoader] = None,
+        num_epochs: int,
+    ) -> EpochHistory:
+        history = EpochHistory()
+
+        for epoch in range(1, num_epochs + 1):
+            print(f"\nEpoch {epoch}/{num_epochs}")
+
+            train_metrics = self.train_epoch(train_loader)
+            print(
+                f"Train | loss={train_metrics.get('loss', float('nan')):.4f} | "
+                f"recon={train_metrics.get('reconstruction_loss', float('nan')):.4f} | "
+                f"mae={train_metrics.get('reconstruction_mae', float('nan')):.4f}"
+            )
+
+            history.train_loss.append(train_metrics.get("loss", float("nan")))
+            history.train_reconstruction_loss.append(
+                train_metrics.get("reconstruction_loss", float("nan"))
+            )
+            history.train_reconstruction_mae.append(
+                train_metrics.get("reconstruction_mae", float("nan"))
+            )
+
+            if val_loader is not None:
+                val_metrics = self.validate_epoch(val_loader)
+                print(
+                    f"Val   | loss={val_metrics.get('loss', float('nan')):.4f} | "
+                    f"recon={val_metrics.get('reconstruction_loss', float('nan')):.4f} | "
+                    f"mae={val_metrics.get('reconstruction_mae', float('nan')):.4f}"
                 )
+
+                history.val_loss.append(val_metrics.get("loss", float("nan")))
+                history.val_reconstruction_loss.append(
+                    val_metrics.get("reconstruction_loss", float("nan"))
+                )
+                history.val_reconstruction_mae.append(
+                    val_metrics.get("reconstruction_mae", float("nan"))
+                )
+
         return history
-
-    def _run_epoch(self, data_loader, train: bool) -> Dict[str, float]:
-        self.model.train(mode=train)
-        collected: List[Dict[str, float]] = []
-
-        for batch in data_loader:
-            batch = move_batch_to_device(batch, self.device)
-
-            with torch.set_grad_enabled(train):
-                outputs = self.model(batch)
-                metrics = self.objective_manager.compute(outputs, batch)
-                loss = metrics["loss"]
-
-                if train:
-                    self.optimizer.zero_grad(set_to_none=True)
-                    loss.backward()
-                    if self.gradient_clip_norm is not None:
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_norm)
-                    self.optimizer.step()
-
-            collected.append({
-                "loss": float(loss.detach().cpu().item())
-            })
-
-        return average_metric_dict(collected)
