@@ -40,22 +40,49 @@ def _to_namespace(obj: Any) -> Any:
 
 
 def load_yaml(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+
     with path.open("r", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
 
 
-def load_experiment_config(config_dir: Path) -> ExperimentConfig:
+def _validate_required_sections(merged: Dict[str, Any]) -> None:
+    required_sections = [
+        "experiment",
+        "cohort",
+        "paths",
+        "run",
+        "data",
+        "model",
+        "train",
+        "objective",
+        "output",
+    ]
+
+    missing = [section for section in required_sections if section not in merged]
+    if missing:
+        raise ValueError(f"Missing required config sections: {missing}")
+
+
+def load_experiment_config(
+    config_dir: Path,
+    cohort_config_name: str,
+) -> ExperimentConfig:
     config_files = [
         config_dir / "base.yaml",
         config_dir / "data.yaml",
         config_dir / "model.yaml",
         config_dir / "train.yaml",
         config_dir / "output.yaml",
-        config_dir / "cohort" / "cohort_a.yaml",
+        config_dir / "cohort" / cohort_config_name,
     ]
+
     merged: Dict[str, Any] = {}
     for path in config_files:
         merged = _deep_update(merged, load_yaml(path))
+
+    _validate_required_sections(merged)
 
     return ExperimentConfig(
         experiment=_to_namespace(merged["experiment"]),
