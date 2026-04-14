@@ -44,7 +44,16 @@ class MaskedModelingCollator:
         masking_ratio: float = 0.15,
         min_masked_features: int = 1,
         seed: Optional[int] = None,
+        deterministic: bool = False,
     ) -> None:
+    '''def __init__(
+        self,
+        feature_names: List[str],
+        *,
+        masking_ratio: float = 0.15,
+        min_masked_features: int = 1,
+        seed: Optional[int] = None,
+    ) -> None:'''
         if not feature_names:
             raise ValueError("feature_names must not be empty.")
         if not (0.0 <= masking_ratio <= 1.0):
@@ -56,6 +65,8 @@ class MaskedModelingCollator:
         self.vocab = FeatureVocabulary(feature_names)
         self.masking_ratio = masking_ratio
         self.min_masked_features = min_masked_features
+        self.seed = seed if seed is not None else 0
+        self.deterministic = deterministic
 
         self.generator = torch.Generator()
         if seed is not None:
@@ -70,7 +81,7 @@ class MaskedModelingCollator:
         tensors = [item[field_name] for item in batch]
         return torch.stack(tensors).to(dtype=dtype)
 
-    def _build_prediction_mask(self, observed_mask: torch.Tensor) -> torch.Tensor:
+    '''def _build_prediction_mask(self, observed_mask: torch.Tensor) -> torch.Tensor:
         """
         Randomly choose a subset of observed features to mask.
 
@@ -107,6 +118,78 @@ class MaskedModelingCollator:
 
             prediction_mask[row_idx, chosen] = True
 
+        return prediction_mask'''
+
+    def _build_prediction_mask(self, observed_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Choose a subset of observed features to mask.
+    
+        If deterministic=False:
+            use the running generator (training behavior)
+        If deterministic=True:
+            build the same mask for the same row position every call (validation behavior)
+        """
+        batch_size, num_features = observed_mask.shape
+        prediction_mask = torch.zeros_like(observed_mask, dtype=torch.bool)
+    
+        if not self.deterministic:
+            random_scores = torch.rand(
+                (batch_size, num_features),
+                generator=self.generator,
+                device=observed_mask.device,
+            )
+    
+            candidate_mask = observed_mask.clone()
+    
+            for row_idx in range(batch_size):
+                observed_indices = torch.where(candidate_mask[row_idx])[0]
+                n_observed = int(observed_indices.numel())
+    
+                if n_observed == 0:
+                    continue
+    
+                n_to_mask = max(
+                    self.min_masked_features,
+                    int(round(n_observed * self.masking_ratio)),
+                )
+                n_to_mask = min(n_to_mask, n_observed)
+    
+                row_scores = random_scores[row_idx, observed_indices]
+                sorted_order = torch.argsort(row_scores)
+                chosen = observed_indices[sorted_order[:n_to_mask]]
+    
+                prediction_mask[row_idx, chosen] = True
+    
+            return prediction_mask
+    
+        # deterministic validation masking
+        for row_idx in range(batch_size):
+            observed_indices = torch.where(observed_mask[row_idx])[0]
+            n_observed = int(observed_indices.numel())
+    
+            if n_observed == 0:
+                continue
+    
+            n_to_mask = max(
+                self.min_masked_features,
+                int(round(n_observed * self.masking_ratio)),
+            )
+            n_to_mask = min(n_to_mask, n_observed)
+    
+            row_generator = torch.Generator(device=observed_mask.device)
+            row_generator.manual_seed(self.seed + row_idx)
+    
+            row_scores = torch.rand(
+                (n_observed,),
+                generator=row_generator,
+                device=observed_mask.device,
+            )
+    
+            sorted_order = torch.argsort(row_scores)
+            chosen = observed_indices[sorted_order[:n_to_mask]]
+    
+            prediction_mask[row_idx, chosen] = True
+    
         return prediction_mask
 
     def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, Any]:
