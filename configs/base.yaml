@@ -4,13 +4,10 @@ experiment:
   device: auto
 
 cohort:
-  name: cohort_a
+  name: amsterdam
 
 paths:
   artifacts_root: artifacts
 
 run:
-  do_train: true
-  do_validate: true
-  save_plots: true
-  save_tables: true
+  num_workers: 0
