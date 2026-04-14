@@ -37,6 +37,15 @@ class MaskedModelingCollator:
     - prediction_mask: [B, F]     -> positions used in loss
     """
 
+    
+    '''def __init__(
+        self,
+        feature_names: List[str],
+        *,
+        masking_ratio: float = 0.15,
+        min_masked_features: int = 1,
+        seed: Optional[int] = None,
+    ) -> None:'''
     def __init__(
         self,
         feature_names: List[str],
@@ -46,14 +55,6 @@ class MaskedModelingCollator:
         seed: Optional[int] = None,
         deterministic: bool = False,
     ) -> None:
-    '''def __init__(
-        self,
-        feature_names: List[str],
-        *,
-        masking_ratio: float = 0.15,
-        min_masked_features: int = 1,
-        seed: Optional[int] = None,
-    ) -> None:'''
         if not feature_names:
             raise ValueError("feature_names must not be empty.")
         if not (0.0 <= masking_ratio <= 1.0):
