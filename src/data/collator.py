@@ -120,6 +120,11 @@ class MaskedModelingCollator:
         values = self._stack_tensor_field(batch, "values", torch.float32)              # [B, F]
         observed_mask = self._stack_tensor_field(batch, "observed_mask", torch.bool)   # [B, F]
 
+        # Replace naturally missing values with 0.0 for safe model input.
+        # observed_mask still keeps track of which values were actually observed.
+        values = values.clone()
+        values[~observed_mask] = 0.0
+
         batch_size, num_features = values.shape
 
         feature_ids_1d = self.vocab.get_feature_ids()                                   # [F]
