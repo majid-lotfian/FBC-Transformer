@@ -65,8 +65,8 @@ def train_step(
     }
 
 
-@torch.no_grad()
-'''def validation_step(
+'''@torch.no_grad()
+def validation_step(
     model: nn.Module,
     batch: Dict,
     objective_manager: ObjectiveManager,
