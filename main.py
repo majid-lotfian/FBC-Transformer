@@ -135,7 +135,7 @@ def run() -> None:
         cohort_name=cfg.cohort.name,
     )
 
-    collator = MaskedModelingCollator(
+    '''collator = MaskedModelingCollator(
         feature_names=feature_names,
         masking_ratio=cfg.objective.masking_ratio,
         min_masked_features=cfg.objective.min_masked_features,
@@ -154,6 +154,34 @@ def run() -> None:
         batch_size=cfg.train.batch_size,
         shuffle=False,
         collate_fn=collator,
+        num_workers=cfg.run.num_workers,
+    )'''
+    train_collator = MaskedModelingCollator(
+        feature_names=feature_names,
+        masking_ratio=cfg.objective.masking_ratio,
+        min_masked_features=cfg.objective.min_masked_features,
+        seed=cfg.experiment.seed,
+    )
+    
+    val_collator = MaskedModelingCollator(
+        feature_names=feature_names,
+        masking_ratio=cfg.objective.masking_ratio,
+        min_masked_features=cfg.objective.min_masked_features,
+        seed=cfg.experiment.seed + 1,
+    )
+    
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=cfg.train.batch_size,
+        shuffle=True,
+        collate_fn=train_collator,
+        num_workers=cfg.run.num_workers,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=cfg.train.batch_size,
+        shuffle=False,
+        collate_fn=val_collator,
         num_workers=cfg.run.num_workers,
     )
 
