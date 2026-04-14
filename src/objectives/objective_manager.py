@@ -21,11 +21,6 @@ class MaskedMSELoss(nn.Module):
         targets: torch.Tensor,
         prediction_mask: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        predictions:     [B, F]
-        targets:         [B, F]
-        prediction_mask: [B, F] bool
-        """
         prediction_mask = prediction_mask.bool()
 
         if predictions.shape != targets.shape:
@@ -40,7 +35,6 @@ class MaskedMSELoss(nn.Module):
         valid_mask = prediction_mask & torch.isfinite(targets)
 
         if valid_mask.sum() == 0:
-            # Keep graph/device/dtype consistent
             return predictions.sum() * 0.0
 
         diff = predictions[valid_mask] - targets[valid_mask]
@@ -55,7 +49,6 @@ class MaskedMSELoss(nn.Module):
 class MaskedMAEMetric(nn.Module):
     """
     Mean absolute error computed only on prediction_mask positions.
-    Useful as a metric, not necessarily as the training loss.
     """
 
     def forward(
@@ -74,13 +67,55 @@ class MaskedMAEMetric(nn.Module):
         return diff.mean()
 
 
-def compute_masked_regression_loss(
-    predictions: torch.Tensor,
-    targets: torch.Tensor,
-    prediction_mask: torch.Tensor,
-) -> torch.Tensor:
+class ObjectiveManager:
     """
-    Convenience function for the main v1 training loss.
+    Bridges batch -> model inputs -> masked reconstruction loss/metrics.
     """
-    loss_fn = MaskedMSELoss(reduction="mean")
-    return loss_fn(predictions, targets, prediction_mask)
+
+    def __init__(self, reconstruction_loss_weight: float = 1.0) -> None:
+        self.reconstruction_loss_weight = reconstruction_loss_weight
+        self.reconstruction_loss_fn = MaskedMSELoss(reduction="mean")
+        self.reconstruction_mae_fn = MaskedMAEMetric()
+
+    def get_model_inputs(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """
+        Extract the exact inputs expected by TabularFoundationModel.forward().
+        """
+        return {
+            "feature_ids": batch["feature_ids"],
+            "values": batch["values"],
+            "observed_mask": batch["observed_mask"],
+            "input_mask": batch["input_mask"],
+        }
+
+    def compute_total_loss(
+        self,
+        model_outputs: dict[str, torch.Tensor],
+        batch: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """
+        Compute total loss and reporting metrics.
+        """
+        predictions = model_outputs["reconstruction"]      # [B, F]
+        targets = batch["masked_targets"]                  # [B, F], NaN outside masked positions
+        prediction_mask = batch["prediction_mask"]         # [B, F]
+
+        reconstruction_loss = self.reconstruction_loss_fn(
+            predictions=predictions,
+            targets=targets,
+            prediction_mask=prediction_mask,
+        )
+
+        reconstruction_mae = self.reconstruction_mae_fn(
+            predictions=predictions,
+            targets=targets,
+            prediction_mask=prediction_mask,
+        )
+
+        total_loss = self.reconstruction_loss_weight * reconstruction_loss
+
+        return {
+            "loss": total_loss,
+            "reconstruction_loss": reconstruction_loss,
+            "reconstruction_mae": reconstruction_mae,
+        }
