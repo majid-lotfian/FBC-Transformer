@@ -4,7 +4,7 @@ experiment:
   device: auto
 
 cohort:
-  name: amsterdam
+  name: cohort_a
 
 paths:
   artifacts_root: artifacts
