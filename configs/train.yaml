@@ -1,14 +1,20 @@
 train:
-  epochs: 3
+  batch_size: 32
+  num_epochs: 3
+
+  optimizer_name: adamw
   learning_rate: 1.0e-3
   weight_decay: 1.0e-4
-  gradient_clip_norm: 1.0
-  scheduler: cosine
-  warmup_steps: 0
-  validation_every: 1
+
+  scheduler_name: cosine
+  scheduler_step_size: 10
+  scheduler_gamma: 0.1
+  scheduler_t_max: null
+  scheduler_eta_min: 0.0
+
+  grad_clip_norm: 1.0
 
 objective:
-  name: masked_modeling
-  mask_ratio: 0.15
-  continuous_loss: mse
-  categorical_loss: cross_entropy
+  masking_ratio: 0.15
+  min_masked_features: 1
+  reconstruction_loss_weight: 1.0
