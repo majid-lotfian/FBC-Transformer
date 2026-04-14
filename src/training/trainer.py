@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from pathlib import Path
+
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -37,6 +39,16 @@ class Trainer:
     High-level training loop manager for v1 masked-feature-modeling pretraining.
     """
 
+    '''def __init__(
+        self,
+        *,
+        model: torch.nn.Module,
+        objective_manager,
+        optimizer: torch.optim.Optimizer,
+        device: torch.device,
+        grad_clip_norm: Optional[float] = None,
+        scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
+    ) -> None:'''
     def __init__(
         self,
         *,
@@ -46,6 +58,8 @@ class Trainer:
         device: torch.device,
         grad_clip_norm: Optional[float] = None,
         scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
+        best_checkpoint_path: Optional[Path] = None,
+        last_checkpoint_path: Optional[Path] = None,
     ) -> None:
         self.model = model
         self.objective_manager = objective_manager
@@ -53,9 +67,31 @@ class Trainer:
         self.device = device
         self.grad_clip_norm = grad_clip_norm
         self.scheduler = scheduler
+        self.best_checkpoint_path = best_checkpoint_path
+        self.last_checkpoint_path = last_checkpoint_path
 
         self.model.to(self.device)
 
+    
+    def _save_checkpoint(
+        self,
+        path: Path,
+        *,
+        epoch: int,
+        best_val_loss: float | None,
+    ) -> None:
+        checkpoint = {
+            "epoch": epoch,
+            "model_state_dict": self.model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "scheduler_state_dict": self.scheduler.state_dict() if self.scheduler is not None else None,
+            "best_val_loss": best_val_loss,
+        }
+        torch.save(checkpoint, path)
+    
+    
+    
+    
     def train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
         step_outputs: List[Dict[str, float]] = []
 
@@ -115,6 +151,7 @@ class Trainer:
         num_epochs: int,
     ) -> EpochHistory:
         history = EpochHistory()
+        best_val_loss = float("inf")
 
         for epoch in range(1, num_epochs + 1):
             print(f"\nEpoch {epoch}/{num_epochs}")
@@ -134,7 +171,44 @@ class Trainer:
                 train_metrics.get("reconstruction_mae", float("nan"))
             )
 
+            
             if val_loader is not None:
+                val_metrics = self.validate_epoch(val_loader)
+                current_val_loss = val_metrics.get("loss", float("nan"))
+
+                print(
+                    f"Val   | loss={current_val_loss:.4f} | "
+                    f"recon={val_metrics.get('reconstruction_loss', float('nan')):.4f} | "
+                    f"mae={val_metrics.get('reconstruction_mae', float('nan')):.4f}"
+                )
+
+                history.val_loss.append(current_val_loss)
+                history.val_reconstruction_loss.append(
+                    val_metrics.get("reconstruction_loss", float("nan"))
+                )
+                history.val_reconstruction_mae.append(
+                    val_metrics.get("reconstruction_mae", float("nan"))
+                )
+
+                if current_val_loss < best_val_loss:
+                    best_val_loss = current_val_loss
+                    if self.best_checkpoint_path is not None:
+                        self._save_checkpoint(
+                            self.best_checkpoint_path,
+                            epoch=epoch,
+                            best_val_loss=best_val_loss,
+                        )
+                        print(f"Saved new best checkpoint to {self.best_checkpoint_path}")
+            
+            if self.last_checkpoint_path is not None:
+                self._save_checkpoint(
+                    self.last_checkpoint_path,
+                    epoch=epoch,
+                    best_val_loss=best_val_loss if val_loader is not None else None,
+                )
+            
+            
+            '''if val_loader is not None:
                 val_metrics = self.validate_epoch(val_loader)
                 print(
                     f"Val   | loss={val_metrics.get('loss', float('nan')):.4f} | "
@@ -148,6 +222,6 @@ class Trainer:
                 )
                 history.val_reconstruction_mae.append(
                     val_metrics.get("reconstruction_mae", float("nan"))
-                )
+                )'''
 
         return history
