@@ -34,6 +34,27 @@ def train_step(
 
     model_inputs = objective_manager.get_model_inputs(batch)
 
+
+    ############# added for debug
+    print("\n=== DEBUG: train_step model inputs ===")
+    for key, value in model_inputs.items():
+        if torch.is_tensor(value):
+            if value.dtype.is_floating_point:
+                print(
+                    f"{key}: shape={tuple(value.shape)}, "
+                    f"nan={torch.isnan(value).any().item()}, "
+                    f"inf={torch.isinf(value).any().item()}, "
+                    f"min={value.min().item():.6f}, max={value.max().item():.6f}"
+                )
+            else:
+                print(f"{key}: shape={tuple(value.shape)}, dtype={value.dtype}")
+
+
+    ###########################
+
+
+
+    
     optimizer.zero_grad(set_to_none=True)
 
     model_outputs = model(**model_inputs)
