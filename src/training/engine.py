@@ -58,9 +58,41 @@ def train_step(
     optimizer.zero_grad(set_to_none=True)
 
     model_outputs = model(**model_inputs)
+
+
+    ############### added for debug
+
+    print("\n=== DEBUG: train_step model outputs ===")
+    for key, value in model_outputs.items():
+        if torch.is_tensor(value):
+            if value.dtype.is_floating_point:
+                print(
+                    f"{key}: shape={tuple(value.shape)}, "
+                    f"nan={torch.isnan(value).any().item()}, "
+                    f"inf={torch.isinf(value).any().item()}, "
+                    f"min={value.min().item():.6f}, max={value.max().item():.6f}"
+                )
+            else:
+                print(f"{key}: shape={tuple(value.shape)}, dtype={value.dtype}")
+        else:
+            print(f"{key}: {type(value)}")
+
+    ######################
     objective_outputs = objective_manager.compute_total_loss(model_outputs, batch)
 
     loss = objective_outputs["loss"]
+
+
+
+    ############# added for debug
+    print("\n=== DEBUG: objective outputs ===")
+    for key, value in objective_outputs.items():
+        if torch.is_tensor(value):
+            print(f"{key}: {value.detach().cpu().item()}")
+        else:
+            print(f"{key}: {value}")
+
+    #########################
     loss.backward()
 
     if grad_clip_norm is not None:
