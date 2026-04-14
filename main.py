@@ -223,8 +223,8 @@ def run() -> None:
 
     
     # checkpoint saving directory
-    best_checkpoint_path = paths.run_dir / "best_model.pt"
-    last_checkpoint_path = paths.run_dir / "last_model.pt"
+    best_checkpoint_path = paths.run_dir / "checkpoints" / "best_model.pt"
+    last_checkpoint_path = paths.run_dir / "checkpoints" / "last_model.pt"
     
     # 10. Trainer
     trainer = Trainer(
