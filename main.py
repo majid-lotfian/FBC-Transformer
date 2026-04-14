@@ -221,6 +221,11 @@ def run() -> None:
         eta_min=cfg.train.scheduler_eta_min,
     )
 
+    
+    # checkpoint saving directory
+    best_checkpoint_path = paths.run_dir / "best_model.pt"
+    last_checkpoint_path = paths.run_dir / "last_model.pt"
+    
     # 10. Trainer
     trainer = Trainer(
         model=model,
@@ -229,6 +234,8 @@ def run() -> None:
         scheduler=scheduler,
         device=paths.device,
         grad_clip_norm=cfg.train.grad_clip_norm,
+        best_checkpoint_path=best_checkpoint_path,
+        last_checkpoint_path=last_checkpoint_path,
     )
 
     history = trainer.fit(
