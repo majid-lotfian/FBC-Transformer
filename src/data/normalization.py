@@ -95,9 +95,19 @@ def apply_standardization(
         column_stats = stats[column]
 
         if column_stats.std > 0:
+            standardized = (series - column_stats.mean) / column_stats.std
+        else:
+            standardized = series - column_stats.mean
+        
+        # clipping
+        standardized = standardized.clip(-10.0, 10.0)
+        
+        standardized_df[column] = standardized
+        
+        '''if column_stats.std > 0:
             standardized_df[column] = (series - column_stats.mean) / column_stats.std
         else:
-            standardized_df[column] = series - column_stats.mean
+            standardized_df[column] = series - column_stats.mean'''
 
     return standardized_df
 
