@@ -119,6 +119,36 @@ def run() -> None:
         exclude_columns=getattr(cfg.data, "exclude_columns", []),
     )
 
+    ####################added for debug
+    
+    print("\n=== DEBUG: dataframe checks after normalization ===")
+    print("Train df shape:", train_df.shape)
+    print("Val df shape:", val_df.shape)
+
+    print("Train total NaN:", train_df.isna().sum().sum())
+    print("Val total NaN:", val_df.isna().sum().sum())
+
+    bad_train_cols = train_df.columns[train_df.isna().any()].tolist()
+    bad_val_cols = val_df.columns[val_df.isna().any()].tolist()
+
+    print("Train columns with NaN:", bad_train_cols[:30], "count=", len(bad_train_cols))
+    print("Val columns with NaN:", bad_val_cols[:30], "count=", len(bad_val_cols))
+
+    numeric_train = train_df.select_dtypes(include=["number"])
+    numeric_val = val_df.select_dtypes(include=["number"])
+
+    if not numeric_train.empty:
+        print("Any NaN in numeric train:", numeric_train.isna().any().any())
+        print("Any inf in numeric train:", ((numeric_train == float("inf")) | (numeric_train == float("-inf"))).any().any())
+        print("Max abs value in numeric train:", numeric_train.abs().max().max())
+
+    if not numeric_val.empty:
+        print("Any NaN in numeric val:", numeric_val.isna().any().any())
+        print("Any inf in numeric val:", ((numeric_val == float("inf")) | (numeric_val == float("-inf"))).any().any())
+        print("Max abs value in numeric val:", numeric_val.abs().max().max())
+
+    #############
+
     feature_names = list(train_df.columns)
 
     # 7. Dataset + loaders
