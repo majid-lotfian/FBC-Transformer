@@ -4,7 +4,9 @@ model:
   num_layers: 3
   dim_feedforward: 256
   dropout: 0.1
-  pooling: mean
-  max_features: 512
-  value_embed_hidden_dim: 64
-  use_cohort_embedding: true
+
+  pooling_type: mean
+
+  regression_head_hidden_dim: null
+  projection_dim: null
+  projection_hidden_dim: null
