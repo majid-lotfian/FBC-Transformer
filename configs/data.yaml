@@ -1,14 +1,11 @@
 data:
-  raw_data_path: metadata/cohorts/cohort_a/sample_data.csv
-  canonical_features_path: metadata/canonical_features.csv
-  cohort_features_path: metadata/cohorts/cohort_a/cohort_a_features.csv
-  cohort_mapping_path: metadata/cohorts/cohort_a/cohort_a_mapping.csv
-
+  raw_data_path: "I:/FBC/XN_SAMPLEmerge23okt.csv"
+  schema_path: "I:/FBC/Full_Blood_Count_Dataset_features.xlsx"
+  
+  subset_fraction: 0.001
   target_columns: []
-  batch_size: 32
-  num_workers: 0
-  train_fraction: 0.8
-  value_fill_strategy: zero
-  normalization:
-    enabled: true
-    mode: zscore
+  
+  strict_mapping: false
+  treat_dash_as_missing: false
+
+  exclude_columns: []
