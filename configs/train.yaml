@@ -9,7 +9,7 @@ train:
   scheduler_name: cosine
   scheduler_step_size: 10
   scheduler_gamma: 0.1
-  scheduler_t_max: null
+  scheduler_t_max: 5
   scheduler_eta_min: 0.0
 
   grad_clip_norm: 1.0
