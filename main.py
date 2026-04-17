@@ -426,7 +426,7 @@ def run() -> None:
     train_loader = DataLoader(
         train_dataset,
         batch_size=cfg.train.batch_size,
-        shuffle=True,
+        shuffle=False,
         collate_fn=train_collator,
         num_workers=cfg.run.num_workers,
     )
