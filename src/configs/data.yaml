@@ -2,7 +2,7 @@ data:
   raw_data_path: data/amsterdam_small.csv
   schema_path: data/schema.xlsx
 
-  subset_fraction: 0.1
+  subset_fraction: 1
   train_fraction: 0.8
 
   strict_mapping: false
