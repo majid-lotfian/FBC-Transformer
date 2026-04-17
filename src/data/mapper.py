@@ -145,11 +145,16 @@ def build_canonical_dataframe(
         return mapped_df
 
     canonical_order = schema.get_canonical_names()
-    result_df = mapped_df.copy()
 
-    for canonical_name in canonical_order:
-        if canonical_name not in result_df.columns:
-            result_df[canonical_name] = pd.NA
+    missing_columns = [col for col in canonical_order if col not in mapped_df.columns]
 
-    result_df = result_df[canonical_order]
+    if missing_columns:
+        missing_df = pd.DataFrame(
+            {col: pd.Series(pd.NA, index=mapped_df.index, dtype="object") for col in missing_columns}
+        )
+        result_df = pd.concat([mapped_df, missing_df], axis=1)
+    else:
+        result_df = mapped_df
+
+    result_df = result_df.loc[:, canonical_order].copy()
     return result_df
