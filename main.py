@@ -14,8 +14,12 @@ from src.data.loader import load_master_schema, iter_raw_cohort_chunks
 from src.data.validator import validate_master_schema
 from src.data.mapper import build_canonical_dataframe
 from src.data.preprocessing import basic_preprocess_dataframe
-from src.data.normalization import convert_columns_to_numeric
-from src.data.sharding import write_tensor_shard
+from src.data.normalization import (
+    convert_columns_to_numeric,
+    fit_standardization_stats_from_tensor_shards,
+    save_column_stats,
+)
+from src.data.sharding import list_tensor_shards, write_tensor_shard
 
 
 def maybe_subset_dataframe(df, subset_fraction, seed):
@@ -47,7 +51,7 @@ def _canonical_feature_names_from_schema(schema) -> list[str]:
     return [feature.canonical_name for feature in schema.canonical_features]
 
 
-def _process_and_write_tensor_shards(cfg, schema, paths, logger) -> None:
+def _process_and_write_tensor_shards(cfg, schema, paths, logger) -> Path:
     """
     Chunked preprocessing pipeline:
 
@@ -58,9 +62,6 @@ def _process_and_write_tensor_shards(cfg, schema, paths, logger) -> None:
       -> train/val split per chunk
       -> numeric conversion
       -> save train/val tensor shards
-
-    This is the first scalable artifact-building stage.
-    Training from these shards will be added in the next refactor step.
     """
     chunk_size = getattr(cfg.data, "chunk_size", None)
     if chunk_size is None:
@@ -118,7 +119,6 @@ def _process_and_write_tensor_shards(cfg, schema, paths, logger) -> None:
             treat_dash_as_missing=cfg.data.treat_dash_as_missing,
         )
 
-        # Keep a stable and explicit feature order
         canonical_chunk = canonical_chunk[feature_names]
 
         train_chunk, val_chunk = _make_train_val_split(
@@ -185,6 +185,31 @@ def _process_and_write_tensor_shards(cfg, schema, paths, logger) -> None:
         val_shard_index,
     )
 
+    return shard_base_dir
+
+
+def _fit_and_save_normalization_stats(
+    shard_base_dir: Path,
+    paths,
+    logger,
+) -> Path:
+    """
+    Fit normalization stats from TRAIN shards only and save them to JSON.
+    """
+    train_shard_paths = list_tensor_shards(shard_base_dir, "train")
+    if not train_shard_paths:
+        raise ValueError(f"No train shards found under {shard_base_dir / 'train'}")
+
+    logger.info("Found %d train shards for normalization fitting", len(train_shard_paths))
+
+    stats = fit_standardization_stats_from_tensor_shards(train_shard_paths)
+
+    stats_path = paths.run_dir / "normalization_stats.json"
+    save_column_stats(stats, stats_path)
+
+    logger.info("Saved normalization stats to %s", stats_path)
+    return stats_path
+
 
 def run() -> None:
     args = parse_args()
@@ -206,17 +231,29 @@ def run() -> None:
     validate_master_schema(schema)
 
     # 2. Build tensor shards from chunked raw data
-    _process_and_write_tensor_shards(
+    shard_base_dir = _process_and_write_tensor_shards(
         cfg=cfg,
         schema=schema,
         paths=paths,
         logger=logger,
     )
 
+    # 3. Fit normalization stats from train shards only
+    stats_path = _fit_and_save_normalization_stats(
+        shard_base_dir=shard_base_dir,
+        paths=paths,
+        logger=logger,
+    )
+
     logger.info(
         "Shard preparation completed. Tensor shards saved in %s",
-        paths.run_dir / "tensor_shards",
+        shard_base_dir,
     )
+    logger.info(
+        "Normalization stats prepared at %s",
+        stats_path,
+    )
+    logger.info("Run completed. Outputs saved in %s", paths.run_dir)
 
 
 if __name__ == "__main__":
