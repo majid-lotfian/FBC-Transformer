@@ -64,9 +64,109 @@ def _canonical_feature_names_from_schema(schema) -> list[str]:
     return [feature.canonical_name for feature in schema.canonical_features]
 
 
+def _concat_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, axis=0, ignore_index=True)
+
+
+def _flush_buffer_to_shards(
+    *,
+    buffer_frames: list[pd.DataFrame],
+    split_name: str,
+    shard_base_dir: Path,
+    feature_names: list[str],
+    cohort_name: str,
+    next_shard_index: int,
+    target_shard_rows: int,
+    logger,
+) -> tuple[list[pd.DataFrame], int, int]:
+    """
+    Flush full shard-sized chunks from an in-memory buffer.
+
+    Returns
+    -------
+    remaining_frames, next_shard_index, rows_written
+    """
+    rows_written = 0
+
+    while True:
+        current_buffer = _concat_frames(buffer_frames)
+        if current_buffer.empty or len(current_buffer) < target_shard_rows:
+            return buffer_frames, next_shard_index, rows_written
+
+        shard_df = current_buffer.iloc[:target_shard_rows].reset_index(drop=True)
+        remainder_df = current_buffer.iloc[target_shard_rows:].reset_index(drop=True)
+
+        result = write_tensor_shard(
+            shard_df,
+            base_dir=shard_base_dir,
+            split_name=split_name,
+            shard_index=next_shard_index,
+            feature_names=feature_names,
+            cohort_name=cohort_name,
+        )
+
+        logger.info(
+            "Saved %s shard %d -> %s (rows=%d, features=%d)",
+            split_name,
+            next_shard_index,
+            result.shard_path,
+            result.num_rows,
+            result.num_features,
+        )
+
+        rows_written += result.num_rows
+        next_shard_index += 1
+
+        buffer_frames = [remainder_df] if not remainder_df.empty else []
+
+
+def _flush_remaining_buffer(
+    *,
+    buffer_frames: list[pd.DataFrame],
+    split_name: str,
+    shard_base_dir: Path,
+    feature_names: list[str],
+    cohort_name: str,
+    next_shard_index: int,
+    logger,
+) -> tuple[int, int]:
+    """
+    Flush any leftover rows as one final shard.
+
+    Returns
+    -------
+    next_shard_index, rows_written
+    """
+    remaining_df = _concat_frames(buffer_frames)
+    if remaining_df.empty:
+        return next_shard_index, 0
+
+    result = write_tensor_shard(
+        remaining_df,
+        base_dir=shard_base_dir,
+        split_name=split_name,
+        shard_index=next_shard_index,
+        feature_names=feature_names,
+        cohort_name=cohort_name,
+    )
+
+    logger.info(
+        "Saved final %s shard %d -> %s (rows=%d, features=%d)",
+        split_name,
+        next_shard_index,
+        result.shard_path,
+        result.num_rows,
+        result.num_features,
+    )
+
+    return next_shard_index + 1, result.num_rows
+
+
 def _process_and_write_tensor_shards(cfg, schema, paths, logger) -> Path:
     """
-    Chunked preprocessing pipeline:
+    Chunked preprocessing pipeline with buffered shard writing.
 
     raw CSV chunk
       -> optional subset
@@ -74,7 +174,8 @@ def _process_and_write_tensor_shards(cfg, schema, paths, logger) -> Path:
       -> basic preprocessing
       -> train/val split per chunk
       -> numeric conversion
-      -> save train/val tensor shards
+      -> append to train/val buffers
+      -> write shard only when buffer reaches target_shard_rows
     """
     chunk_size = getattr(cfg.data, "chunk_size", None)
     if chunk_size is None:
@@ -83,6 +184,15 @@ def _process_and_write_tensor_shards(cfg, schema, paths, logger) -> Path:
             "Add 'chunk_size' under the 'data' section in your config."
         )
 
+    target_shard_rows = getattr(cfg.data, "target_shard_rows", None)
+    if target_shard_rows is None:
+        raise ValueError(
+            "cfg.data.target_shard_rows is required for buffered shard writing. "
+            "Add 'target_shard_rows' under the 'data' section in your config."
+        )
+    if target_shard_rows <= 0:
+        raise ValueError("cfg.data.target_shard_rows must be a positive integer.")
+
     shard_base_dir = paths.run_dir / "tensor_shards"
     feature_names = _canonical_feature_names_from_schema(schema)
     exclude_columns = getattr(cfg.data, "exclude_columns", [])
@@ -90,12 +200,20 @@ def _process_and_write_tensor_shards(cfg, schema, paths, logger) -> Path:
     train_shard_index = 0
     val_shard_index = 0
 
+    train_buffer_frames: list[pd.DataFrame] = []
+    val_buffer_frames: list[pd.DataFrame] = []
+
     total_raw_rows = 0
     total_subset_rows = 0
     total_train_rows = 0
     total_val_rows = 0
 
-    logger.info("Writing tensor shards under %s", shard_base_dir)
+    logger.info(
+        "Writing tensor shards under %s (chunk_size=%d, target_shard_rows=%d)",
+        shard_base_dir,
+        chunk_size,
+        target_shard_rows,
+    )
 
     for chunk_idx, raw_chunk in enumerate(
         iter_raw_cohort_chunks(
@@ -150,42 +268,57 @@ def _process_and_write_tensor_shards(cfg, schema, paths, logger) -> Path:
         )
 
         if not train_chunk.empty:
-            train_result = write_tensor_shard(
-                train_chunk,
-                base_dir=shard_base_dir,
-                split_name="train",
-                shard_index=train_shard_index,
-                feature_names=feature_names,
-                cohort_name=cfg.cohort.name,
-            )
-            total_train_rows += train_result.num_rows
-            logger.info(
-                "Saved train shard %d -> %s (rows=%d, features=%d)",
-                train_shard_index,
-                train_result.shard_path,
-                train_result.num_rows,
-                train_result.num_features,
-            )
-            train_shard_index += 1
+            train_buffer_frames.append(train_chunk)
 
         if not val_chunk.empty:
-            val_result = write_tensor_shard(
-                val_chunk,
-                base_dir=shard_base_dir,
-                split_name="val",
-                shard_index=val_shard_index,
-                feature_names=feature_names,
-                cohort_name=cfg.cohort.name,
-            )
-            total_val_rows += val_result.num_rows
-            logger.info(
-                "Saved val shard %d -> %s (rows=%d, features=%d)",
-                val_shard_index,
-                val_result.shard_path,
-                val_result.num_rows,
-                val_result.num_features,
-            )
-            val_shard_index += 1
+            val_buffer_frames.append(val_chunk)
+
+        train_buffer_frames, train_shard_index, written_train = _flush_buffer_to_shards(
+            buffer_frames=train_buffer_frames,
+            split_name="train",
+            shard_base_dir=shard_base_dir,
+            feature_names=feature_names,
+            cohort_name=cfg.cohort.name,
+            next_shard_index=train_shard_index,
+            target_shard_rows=target_shard_rows,
+            logger=logger,
+        )
+        total_train_rows += written_train
+
+        val_buffer_frames, val_shard_index, written_val = _flush_buffer_to_shards(
+            buffer_frames=val_buffer_frames,
+            split_name="val",
+            shard_base_dir=shard_base_dir,
+            feature_names=feature_names,
+            cohort_name=cfg.cohort.name,
+            next_shard_index=val_shard_index,
+            target_shard_rows=target_shard_rows,
+            logger=logger,
+        )
+        total_val_rows += written_val
+
+    # Flush leftovers
+    train_shard_index, written_train_final = _flush_remaining_buffer(
+        buffer_frames=train_buffer_frames,
+        split_name="train",
+        shard_base_dir=shard_base_dir,
+        feature_names=feature_names,
+        cohort_name=cfg.cohort.name,
+        next_shard_index=train_shard_index,
+        logger=logger,
+    )
+    total_train_rows += written_train_final
+
+    val_shard_index, written_val_final = _flush_remaining_buffer(
+        buffer_frames=val_buffer_frames,
+        split_name="val",
+        shard_base_dir=shard_base_dir,
+        feature_names=feature_names,
+        cohort_name=cfg.cohort.name,
+        next_shard_index=val_shard_index,
+        logger=logger,
+    )
+    total_val_rows += written_val_final
 
     logger.info(
         "Finished shard writing: raw_rows=%d, subset_rows=%d, train_rows=%d, val_rows=%d, "
