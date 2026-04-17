@@ -432,14 +432,16 @@ def run() -> None:
         batch_size=cfg.train.batch_size,
         shuffle=True,
         collate_fn=train_collator,
-        num_workers=cfg.run.num_workers,
+        #num_workers=cfg.run.num_workers,
+        num_workers=0,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=cfg.train.batch_size,
         shuffle=False,
         collate_fn=val_collator,
-        num_workers=cfg.run.num_workers,
+        #num_workers=cfg.run.num_workers,
+        num_workers=0,
     )
 
     # 5. Model
