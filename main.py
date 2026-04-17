@@ -400,8 +400,8 @@ def run() -> None:
         feature_names=feature_names,
         cohort_name=cfg.cohort.name,
         normalization_stats_path=stats_path,
-        shuffle_within_shard=True,
-        shard_shuffle_seed=cfg.experiment.seed,
+        #shuffle_within_shard=True,
+        #shard_shuffle_seed=cfg.experiment.seed,
     )
     
     val_dataset = TabularFoundationDataset(
@@ -410,7 +410,7 @@ def run() -> None:
         feature_names=feature_names,
         cohort_name=cfg.cohort.name,
         normalization_stats_path=stats_path,
-        shuffle_within_shard=False,
+        #shuffle_within_shard=False,
     )
 
     train_collator = MaskedModelingCollator(
