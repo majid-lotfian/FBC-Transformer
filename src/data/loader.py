@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional, Sequence
 
 import pandas as pd
 
@@ -111,6 +111,40 @@ def infer_cohort_columns(df: pd.DataFrame) -> dict[str, str]:
     return cohort_columns
 
 
+def iter_raw_cohort_chunks(
+    raw_data_path: str | Path,
+    *,
+    chunk_size: int,
+    usecols: Optional[Sequence[str]] = None,
+    nrows: Optional[int] = None,
+    dtype: object = object,
+    low_memory: bool = False,
+) -> Iterator[pd.DataFrame]:
+    """
+    Yield raw cohort CSV data in chunks.
+    """
+    raw_data_path = Path(raw_data_path)
+    if not raw_data_path.exists():
+        raise FileNotFoundError(f"Raw data file not found: {raw_data_path}")
+
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be a positive integer.")
+
+    reader = pd.read_csv(
+        raw_data_path,
+        chunksize=chunk_size,
+        usecols=usecols,
+        nrows=nrows,
+        dtype=dtype,
+        low_memory=low_memory,
+    )
+
+    for chunk in reader:
+        if chunk.empty:
+            continue
+        yield chunk.reset_index(drop=True)
+
+
 # -----------------------------
 # Main loader
 # -----------------------------
@@ -126,7 +160,7 @@ def load_master_schema(schema_path: str | Path) -> MasterSchema:
     - subgroup
     - unit
     - channel_profile
-    - channel/profile  (will normalize to 'channel/profile', so user should prefer channel_profile)
+    - channel/profile
     """
     schema_path = Path(schema_path)
     if not schema_path.exists():
@@ -138,7 +172,6 @@ def load_master_schema(schema_path: str | Path) -> MasterSchema:
 
     df = normalize_dataframe_headers(df)
 
-    # Backward-compatible support if someone still uses channel/profile
     if "channel/profile" in df.columns and "channel_profile" not in df.columns:
         df = df.rename(columns={"channel/profile": "channel_profile"})
 
@@ -163,11 +196,10 @@ def load_master_schema(schema_path: str | Path) -> MasterSchema:
     seen_canonical_names: set[str] = set()
 
     for row_idx, row in df.iterrows():
-        excel_row_number = row_idx + 2  # +2 because Excel starts at 1 and row 1 is header
+        excel_row_number = row_idx + 2
 
         canonical_name = normalize_name(row.get("canonical_name"))
         if canonical_name is None:
-            # Skip blank canonical rows safely
             continue
 
         if canonical_name in seen_canonical_names:
@@ -199,7 +231,7 @@ def load_master_schema(schema_path: str | Path) -> MasterSchema:
             cohort_mappings[cohort_name][canonical_name] = CohortMappingEntry(
                 cohort_name=cohort_name,
                 canonical_name=canonical_name,
-                cohort_feature_name=cohort_feature_name,  # None => absent in that cohort
+                cohort_feature_name=cohort_feature_name,
             )
 
     if not canonical_features:
