@@ -9,11 +9,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from .normalization import (
-    ColumnStats,
-    apply_standardization_to_tensor_values,
-    load_column_stats,
-)
+from .normalization import ColumnStats, apply_standardization_to_tensor_values, load_column_stats
 from .sharding import list_tensor_shards
 
 
@@ -39,8 +35,7 @@ class TabularFoundationDataset(Dataset):
     2) Shard mode
        - input: shard_base_dir=..., split_name=...
        - reads `.pt` tensor shards lazily
-       - optionally applies normalization
-       - supports shard-local row shuffling for fast training
+       - optionally applies normalization on the fly
     """
 
     def __init__(
@@ -54,14 +49,10 @@ class TabularFoundationDataset(Dataset):
         split_name: Optional[str] = None,
         normalization_stats_path: Optional[str | Path] = None,
         clip_value: float = 10.0,
-        shuffle_within_shard: bool = False,
-        shard_shuffle_seed: int = 0,
     ) -> None:
         self.sample_id_column = sample_id_column
         self.cohort_name = cohort_name
         self.clip_value = clip_value
-        self.shuffle_within_shard = shuffle_within_shard
-        self.shard_shuffle_seed = shard_shuffle_seed
 
         # shared output metadata
         self.feature_names: list[str]
@@ -207,79 +198,23 @@ class TabularFoundationDataset(Dataset):
         self._length = running_total
 
         if cohort_name is None:
-            first_payload = torch.load(
-                self.shard_paths[0],
-                map_location="cpu",
-                weights_only=True,
-            )
+            first_payload = torch.load(self.shard_paths[0], map_location="cpu", weights_only=True)
             self.cohort_name = first_payload.get("cohort_name")
         else:
             self.cohort_name = cohort_name
 
     def _load_shard_payload(self, shard_idx: int) -> dict:
-        """
-        Load one shard, optionally normalize the whole shard once,
-        and optionally shuffle row order within the shard once.
-
-        This is much faster than:
-        - global random access across shards
-        - per-sample normalization inside __getitem__
-        """
         if self._current_shard_idx == shard_idx and self._current_shard_payload is not None:
             return self._current_shard_payload
 
-        payload = torch.load(
-            self.shard_paths[shard_idx],
-            map_location="cpu",
-            weights_only=True,
-        )
-
-        values = payload["values"].clone().to(dtype=torch.float32)
-        observed_mask = payload["observed_mask"].clone().bool()
-        sample_ids = payload.get("sample_ids")
-
-        # Normalize the whole shard once, not one row at a time
-        if self.normalization_stats is not None:
-            values = apply_standardization_to_tensor_values(
-                values,
-                observed_mask,
-                self.feature_names,
-                self.normalization_stats,
-                clip_value=self.clip_value,
-            )
-
-        # Shuffle row order within shard once (useful for training while keeping
-        # DataLoader shuffle=False to avoid slow cross-shard random access)
-        if self.shuffle_within_shard and self.split_name == "train":
-            generator = torch.Generator()
-            generator.manual_seed(self.shard_shuffle_seed + shard_idx)
-
-            perm = torch.randperm(values.shape[0], generator=generator)
-            values = values[perm]
-            observed_mask = observed_mask[perm]
-
-            if sample_ids is not None:
-                sample_ids = [sample_ids[i] for i in perm.tolist()]
-
-        prepared_payload = {
-            "values": values,
-            "observed_mask": observed_mask,
-            "feature_names": payload["feature_names"],
-            "cohort_name": payload.get("cohort_name", self.cohort_name),
-            "sample_ids": sample_ids,
-            "num_rows": payload["num_rows"],
-            "num_features": payload["num_features"],
-        }
-
+        payload = torch.load(self.shard_paths[shard_idx], map_location="cpu", weights_only=True)
         self._current_shard_idx = shard_idx
-        self._current_shard_payload = prepared_payload
-        return prepared_payload
+        self._current_shard_payload = payload
+        return payload
 
     def _global_index_to_shard_position(self, index: int) -> tuple[int, int]:
         if index < 0 or index >= self._length:
-            raise IndexError(
-                f"Index {index} out of range for dataset of length {self._length}"
-            )
+            raise IndexError(f"Index {index} out of range for dataset of length {self._length}")
 
         shard_idx = bisect_right(self.shard_cumulative_ends, index)
         shard_start = 0 if shard_idx == 0 else self.shard_cumulative_ends[shard_idx - 1]
@@ -321,8 +256,17 @@ class TabularFoundationDataset(Dataset):
             shard_idx, local_idx = self._global_index_to_shard_position(index)
             payload = self._load_shard_payload(shard_idx)
 
-            row_values = payload["values"][local_idx].clone()
-            row_observed_mask = payload["observed_mask"][local_idx].clone()
+            row_values = payload["values"][local_idx].clone().to(dtype=torch.float32)
+            row_observed_mask = payload["observed_mask"][local_idx].clone().bool()
+
+            if self.normalization_stats is not None:
+                row_values = apply_standardization_to_tensor_values(
+                    row_values.unsqueeze(0),
+                    row_observed_mask.unsqueeze(0),
+                    self.feature_names,
+                    self.normalization_stats,
+                    clip_value=self.clip_value,
+                ).squeeze(0)
 
             sample_ids = payload.get("sample_ids")
             sample_id = None
