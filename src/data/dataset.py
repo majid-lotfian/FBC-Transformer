@@ -169,7 +169,7 @@ class TabularFoundationDataset(Dataset):
         inferred_feature_names: Optional[list[str]] = None
 
         for shard_path in self.shard_paths:
-            payload = torch.load(shard_path, map_location="cpu")
+            payload = torch.load(shard_path, map_location="cpu", weights_only=True)
 
             shard_feature_names = payload["feature_names"]
             shard_num_rows = int(payload["num_rows"])
@@ -198,7 +198,7 @@ class TabularFoundationDataset(Dataset):
         self._length = running_total
 
         if cohort_name is None:
-            first_payload = torch.load(self.shard_paths[0], map_location="cpu")
+            first_payload = torch.load(self.shard_paths[0], map_location="cpu", weights_only=True)
             self.cohort_name = first_payload.get("cohort_name")
         else:
             self.cohort_name = cohort_name
@@ -207,7 +207,7 @@ class TabularFoundationDataset(Dataset):
         if self._current_shard_idx == shard_idx and self._current_shard_payload is not None:
             return self._current_shard_payload
 
-        payload = torch.load(self.shard_paths[shard_idx], map_location="cpu")
+        payload = torch.load(self.shard_paths[shard_idx], map_location="cpu", weights_only=True)
         self._current_shard_idx = shard_idx
         self._current_shard_payload = payload
         return payload
