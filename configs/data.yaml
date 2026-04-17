@@ -5,7 +5,7 @@ data:
   target_shard_rows: 5000
   
   
-  subset_fraction: 0.01
+  subset_fraction: 1
   train_fraction: 0.8
   target_columns: []
   
