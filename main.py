@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+from torch.utils.data import DataLoader
 
 from src.config import load_experiment_config
 from src.paths import PathManager
@@ -20,6 +21,18 @@ from src.data.normalization import (
     save_column_stats,
 )
 from src.data.sharding import list_tensor_shards, write_tensor_shard
+from src.data.dataset import TabularFoundationDataset
+from src.data.collator import MaskedModelingCollator
+
+from src.models.model import TabularFoundationModel
+from src.objectives.objective_manager import ObjectiveManager
+from src.training.optimizer import build_optimizer
+from src.training.scheduler import build_scheduler
+from src.training.trainer import Trainer
+
+from src.outputs.exporter import export_run_summary
+from src.outputs.plots import plot_metric_history
+from src.outputs.tables import write_metrics_table
 
 
 def maybe_subset_dataframe(df, subset_fraction, seed):
@@ -245,14 +258,127 @@ def run() -> None:
         logger=logger,
     )
 
-    logger.info(
-        "Shard preparation completed. Tensor shards saved in %s",
-        shard_base_dir,
+    feature_names = _canonical_feature_names_from_schema(schema)
+
+    # 4. Dataset + loaders (lazy shard-backed)
+    train_dataset = TabularFoundationDataset(
+        shard_base_dir=shard_base_dir,
+        split_name="train",
+        feature_names=feature_names,
+        cohort_name=cfg.cohort.name,
+        normalization_stats_path=stats_path,
     )
-    logger.info(
-        "Normalization stats prepared at %s",
-        stats_path,
+    val_dataset = TabularFoundationDataset(
+        shard_base_dir=shard_base_dir,
+        split_name="val",
+        feature_names=feature_names,
+        cohort_name=cfg.cohort.name,
+        normalization_stats_path=stats_path,
     )
+
+    train_collator = MaskedModelingCollator(
+        feature_names=feature_names,
+        masking_ratio=cfg.objective.masking_ratio,
+        min_masked_features=cfg.objective.min_masked_features,
+        seed=cfg.experiment.seed,
+    )
+
+    val_collator = MaskedModelingCollator(
+        feature_names=feature_names,
+        masking_ratio=cfg.objective.masking_ratio,
+        min_masked_features=cfg.objective.min_masked_features,
+        seed=cfg.experiment.seed + 1,
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=cfg.train.batch_size,
+        shuffle=True,
+        collate_fn=train_collator,
+        num_workers=cfg.run.num_workers,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=cfg.train.batch_size,
+        shuffle=False,
+        collate_fn=val_collator,
+        num_workers=cfg.run.num_workers,
+    )
+
+    # 5. Model
+    model = TabularFoundationModel(
+        num_features=len(feature_names),
+        d_model=cfg.model.d_model,
+        nhead=cfg.model.nhead,
+        num_layers=cfg.model.num_layers,
+        dim_feedforward=cfg.model.dim_feedforward,
+        dropout=cfg.model.dropout,
+        pooling_type=cfg.model.pooling_type,
+        regression_head_hidden_dim=cfg.model.regression_head_hidden_dim,
+        projection_dim=cfg.model.projection_dim,
+        projection_hidden_dim=cfg.model.projection_hidden_dim,
+    ).to(paths.device)
+
+    # 6. Objectives + optimizer + scheduler
+    objective_manager = ObjectiveManager(
+        reconstruction_loss_weight=cfg.objective.reconstruction_loss_weight,
+    )
+
+    optimizer = build_optimizer(
+        model=model,
+        optimizer_name=cfg.train.optimizer_name,
+        learning_rate=cfg.train.learning_rate,
+        weight_decay=cfg.train.weight_decay,
+    )
+
+    scheduler = build_scheduler(
+        optimizer=optimizer,
+        scheduler_name=cfg.train.scheduler_name,
+        num_epochs=cfg.train.num_epochs,
+        step_size=cfg.train.scheduler_step_size,
+        gamma=cfg.train.scheduler_gamma,
+        t_max=cfg.train.scheduler_t_max,
+        eta_min=cfg.train.scheduler_eta_min,
+    )
+
+    # 7. Checkpoints
+    best_checkpoint_path = paths.run_dir / "checkpoints" / "best_model.pt"
+    last_checkpoint_path = paths.run_dir / "checkpoints" / "last_model.pt"
+
+    # 8. Trainer
+    trainer = Trainer(
+        model=model,
+        objective_manager=objective_manager,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        device=paths.device,
+        grad_clip_norm=cfg.train.grad_clip_norm,
+        best_checkpoint_path=best_checkpoint_path,
+        last_checkpoint_path=last_checkpoint_path,
+    )
+
+    history = trainer.fit(
+        train_loader=train_loader,
+        val_loader=val_loader,
+        num_epochs=cfg.train.num_epochs,
+    )
+
+    # 9. Outputs
+    if cfg.output.write_metrics_csv:
+        write_metrics_table(history, paths.metrics_file)
+
+    if cfg.output.save_plots:
+        plot_metric_history(history, paths.plots_dir / "loss_curve.png")
+
+    if cfg.output.write_summary_json:
+        export_run_summary(
+            cfg=cfg,
+            history=history,
+            output_path=paths.summary_file,
+        )
+
+    logger.info("Shard preparation completed. Tensor shards saved in %s", shard_base_dir)
+    logger.info("Normalization stats prepared at %s", stats_path)
     logger.info("Run completed. Outputs saved in %s", paths.run_dir)
 
 
