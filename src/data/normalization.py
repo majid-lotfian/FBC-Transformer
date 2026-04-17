@@ -208,7 +208,7 @@ def fit_standardization_stats_from_tensor_shards(
         if not shard_path.exists():
             raise FileNotFoundError(f"Shard file not found: {shard_path}")
 
-        payload = torch.load(shard_path, map_location="cpu")
+        payload = torch.load(shard_path, map_location="cpu", weights_only=True)
 
         values = payload["values"].to(dtype=torch.float64)           # [N, F]
         observed_mask = payload["observed_mask"].bool()              # [N, F]
