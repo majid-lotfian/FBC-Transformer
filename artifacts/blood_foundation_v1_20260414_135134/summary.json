@@ -1,0 +1,139 @@
+{
+  "config": {
+    "experiment": {
+      "name": "blood_foundation_v1",
+      "seed": 42,
+      "device": "auto"
+    },
+    "cohort": {
+      "name": "amsterdam",
+      "id": 0,
+      "description": "Amsterdam cohort"
+    },
+    "paths": {
+      "artifacts_root": "artifacts"
+    },
+    "run": {
+      "num_workers": 0
+    },
+    "data": {
+      "raw_data_path": "I:/FBC/XN_SAMPLEmerge23okt.csv",
+      "schema_path": "I:/FBC/Full_Blood_Count_Dataset_features.xlsx",
+      "subset_fraction": 0.001,
+      "train_fraction": 0.8,
+      "target_columns": [],
+      "strict_mapping": false,
+      "treat_dash_as_missing": false,
+      "exclude_columns": []
+    },
+    "model": {
+      "d_model": 128,
+      "nhead": 4,
+      "num_layers": 3,
+      "dim_feedforward": 256,
+      "dropout": 0.1,
+      "pooling_type": "mean",
+      "regression_head_hidden_dim": null,
+      "projection_dim": null,
+      "projection_hidden_dim": null
+    },
+    "train": {
+      "batch_size": 32,
+      "num_epochs": 10,
+      "optimizer_name": "adamw",
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler_name": "cosine",
+      "scheduler_step_size": 10,
+      "scheduler_gamma": 0.1,
+      "scheduler_t_max": null,
+      "scheduler_eta_min": 0.0,
+      "grad_clip_norm": 1.0
+    },
+    "objective": {
+      "masking_ratio": 0.15,
+      "min_masked_features": 1,
+      "reconstruction_loss_weight": 1.0
+    },
+    "output": {
+      "write_metrics_csv": true,
+      "write_summary_json": true,
+      "save_plots": true,
+      "log_to_console": true
+    }
+  },
+  "history": {
+    "train_loss": [
+      1.0933553896844388,
+      0.9910060919821262,
+      0.9714098908007145,
+      0.7095448940992355,
+      0.8352877981960773,
+      0.8022169910371304,
+      0.7214496955275536,
+      0.6264644235372543,
+      0.8086665369570255,
+      0.8715410500764846
+    ],
+    "train_reconstruction_loss": [
+      1.0933553896844388,
+      0.9910060919821262,
+      0.9714098908007145,
+      0.7095448940992355,
+      0.8352877981960773,
+      0.8022169910371304,
+      0.7214496955275536,
+      0.6264644235372543,
+      0.8086665369570255,
+      0.8715410500764846
+    ],
+    "train_reconstruction_mae": [
+      0.63813496530056,
+      0.4909182399511337,
+      0.4834784813225269,
+      0.47115143164992335,
+      0.45882217958569527,
+      0.44905260354280474,
+      0.41805798187851906,
+      0.41444614008069036,
+      0.42227291986346244,
+      0.40403938814997675
+    ],
+    "val_loss": [
+      0.7634324342012405,
+      0.7642543017864227,
+      0.7302993327379227,
+      1.3324760407209397,
+      1.1763383328914643,
+      1.0184106603264809,
+      0.6893342912197113,
+      1.0909801483154298,
+      0.4826872915029526,
+      0.9388275250792504
+    ],
+    "val_reconstruction_loss": [
+      0.7634324342012405,
+      0.7642543017864227,
+      0.7302993327379227,
+      1.3324760407209397,
+      1.1763383328914643,
+      1.0184106603264809,
+      0.6893342912197113,
+      1.0909801483154298,
+      0.4826872915029526,
+      0.9388275250792504
+    ],
+    "val_reconstruction_mae": [
+      0.5593376219272613,
+      0.5287869393825531,
+      0.5105175465345383,
+      0.5556041061878204,
+      0.47030946910381316,
+      0.4327190488576889,
+      0.4049482434988022,
+      0.4312528699636459,
+      0.38968979120254515,
+      0.38303267359733584
+    ]
+  }
+}

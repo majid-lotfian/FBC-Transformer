@@ -1,6 +1,6 @@
 train:
   batch_size: 32
-  num_epochs: 3
+  num_epochs: 20
 
   optimizer_name: adamw
   learning_rate: 1.0e-3

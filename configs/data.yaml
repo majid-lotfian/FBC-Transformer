@@ -2,7 +2,8 @@ data:
   raw_data_path: "I:/FBC/XN_SAMPLEmerge23okt.csv"
   schema_path: "I:/FBC/Full_Blood_Count_Dataset_features.xlsx"
   
-  subset_fraction: 0.001
+  subset_fraction: 0.01
+  train_fraction: 0.8
   target_columns: []
   
   strict_mapping: false

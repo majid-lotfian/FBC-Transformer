@@ -1,0 +1,97 @@
+{
+  "config": {
+    "experiment": {
+      "name": "blood_foundation_v1",
+      "seed": 42,
+      "device": "auto"
+    },
+    "cohort": {
+      "name": "amsterdam",
+      "id": 0,
+      "description": "Amsterdam cohort"
+    },
+    "paths": {
+      "artifacts_root": "artifacts"
+    },
+    "run": {
+      "num_workers": 0
+    },
+    "data": {
+      "raw_data_path": "I:/FBC/XN_SAMPLEmerge23okt.csv",
+      "schema_path": "I:/FBC/Full_Blood_Count_Dataset_features.xlsx",
+      "subset_fraction": 0.001,
+      "train_fraction": 0.8,
+      "target_columns": [],
+      "strict_mapping": false,
+      "treat_dash_as_missing": false,
+      "exclude_columns": []
+    },
+    "model": {
+      "d_model": 128,
+      "nhead": 4,
+      "num_layers": 3,
+      "dim_feedforward": 256,
+      "dropout": 0.1,
+      "pooling_type": "mean",
+      "regression_head_hidden_dim": null,
+      "projection_dim": null,
+      "projection_hidden_dim": null
+    },
+    "train": {
+      "batch_size": 32,
+      "num_epochs": 3,
+      "optimizer_name": "adamw",
+      "learning_rate": 0.001,
+      "weight_decay": 0.0001,
+      "scheduler_name": "cosine",
+      "scheduler_step_size": 10,
+      "scheduler_gamma": 0.1,
+      "scheduler_t_max": null,
+      "scheduler_eta_min": 0.0,
+      "grad_clip_norm": 1.0
+    },
+    "objective": {
+      "masking_ratio": 0.15,
+      "min_masked_features": 1,
+      "reconstruction_loss_weight": 1.0
+    },
+    "output": {
+      "write_metrics_csv": true,
+      "write_summary_json": true,
+      "save_plots": true,
+      "log_to_console": true
+    }
+  },
+  "history": {
+    "train_loss": [
+      NaN,
+      NaN,
+      NaN
+    ],
+    "train_reconstruction_loss": [
+      NaN,
+      NaN,
+      NaN
+    ],
+    "train_reconstruction_mae": [
+      NaN,
+      NaN,
+      NaN
+    ],
+    "val_loss": [
+      NaN,
+      NaN,
+      NaN
+    ],
+    "val_reconstruction_loss": [
+      NaN,
+      NaN,
+      NaN
+    ],
+    "val_reconstruction_mae": [
+      NaN,
+      NaN,
+      NaN
+    ]
+  }
+}
