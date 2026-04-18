@@ -2,7 +2,7 @@ data:
   raw_data_path: "I:/FBC/XN_SAMPLEmerge23okt.csv"
   schema_path: "I:/FBC/Full_Blood_Count_Dataset_features.xlsx"
   chunk_size: 100000
-  target_shard_rows: 5000
+  target_shard_rows: 50000
   
   
   subset_fraction: 1
