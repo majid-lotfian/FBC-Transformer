@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -9,7 +10,11 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from .normalization import ColumnStats, apply_standardization_to_tensor_values, load_column_stats
+from .normalization import (
+    ColumnStats,
+    apply_standardization_to_tensor_values,
+    load_column_stats,
+)
 from .sharding import list_tensor_shards
 
 
@@ -35,7 +40,8 @@ class TabularFoundationDataset(Dataset):
     2) Shard mode
        - input: shard_base_dir=..., split_name=...
        - reads `.pt` tensor shards lazily
-       - optionally applies normalization on the fly
+       - caches multiple loaded shards
+       - applies normalization once per loaded shard
     """
 
     def __init__(
@@ -49,10 +55,12 @@ class TabularFoundationDataset(Dataset):
         split_name: Optional[str] = None,
         normalization_stats_path: Optional[str | Path] = None,
         clip_value: float = 10.0,
+        shard_cache_size: int = 4,
     ) -> None:
         self.sample_id_column = sample_id_column
         self.cohort_name = cohort_name
         self.clip_value = clip_value
+        self.shard_cache_size = shard_cache_size
 
         # shared output metadata
         self.feature_names: list[str]
@@ -60,8 +68,9 @@ class TabularFoundationDataset(Dataset):
 
         # mode flags
         self._mode: str
-        self._current_shard_idx: Optional[int] = None
-        self._current_shard_payload: Optional[dict] = None
+
+        # multi-shard LRU cache for shard mode
+        self._shard_cache: OrderedDict[int, dict] = OrderedDict()
 
         if normalization_stats_path is not None:
             self.normalization_stats = load_column_stats(normalization_stats_path)
@@ -169,7 +178,7 @@ class TabularFoundationDataset(Dataset):
         inferred_feature_names: Optional[list[str]] = None
 
         for shard_path in self.shard_paths:
-            payload = torch.load(shard_path, map_location="cpu")
+            payload = torch.load(shard_path, map_location="cpu", weights_only=True)
 
             shard_feature_names = payload["feature_names"]
             shard_num_rows = int(payload["num_rows"])
@@ -198,18 +207,47 @@ class TabularFoundationDataset(Dataset):
         self._length = running_total
 
         if cohort_name is None:
-            first_payload = torch.load(self.shard_paths[0], map_location="cpu")
+            first_payload = torch.load(self.shard_paths[0], map_location="cpu", weights_only=True)
             self.cohort_name = first_payload.get("cohort_name")
         else:
             self.cohort_name = cohort_name
 
-    def _load_shard_payload(self, shard_idx: int) -> dict:
-        if self._current_shard_idx == shard_idx and self._current_shard_payload is not None:
-            return self._current_shard_payload
+    def _normalize_payload_in_place(self, payload: dict) -> dict:
+        if self.normalization_stats is None:
+            return payload
 
-        payload = torch.load(self.shard_paths[shard_idx], map_location="cpu")
-        self._current_shard_idx = shard_idx
-        self._current_shard_payload = payload
+        payload = dict(payload)
+        payload["values"] = apply_standardization_to_tensor_values(
+            payload["values"],
+            payload["observed_mask"],
+            self.feature_names,
+            self.normalization_stats,
+            clip_value=self.clip_value,
+        )
+        return payload
+
+    def _load_shard_payload(self, shard_idx: int) -> dict:
+        # LRU cache hit
+        if shard_idx in self._shard_cache:
+            payload = self._shard_cache.pop(shard_idx)
+            self._shard_cache[shard_idx] = payload
+            return payload
+
+        # Load from disk
+        payload = torch.load(
+            self.shard_paths[shard_idx],
+            map_location="cpu",
+            weights_only=True,
+        )
+
+        # Normalize whole shard once
+        payload = self._normalize_payload_in_place(payload)
+
+        # Store in LRU cache
+        self._shard_cache[shard_idx] = payload
+        while len(self._shard_cache) > self.shard_cache_size:
+            self._shard_cache.popitem(last=False)
+
         return payload
 
     def _global_index_to_shard_position(self, index: int) -> tuple[int, int]:
@@ -258,15 +296,6 @@ class TabularFoundationDataset(Dataset):
 
             row_values = payload["values"][local_idx].clone().to(dtype=torch.float32)
             row_observed_mask = payload["observed_mask"][local_idx].clone().bool()
-
-            if self.normalization_stats is not None:
-                row_values = apply_standardization_to_tensor_values(
-                    row_values.unsqueeze(0),
-                    row_observed_mask.unsqueeze(0),
-                    self.feature_names,
-                    self.normalization_stats,
-                    clip_value=self.clip_value,
-                ).squeeze(0)
 
             sample_ids = payload.get("sample_ids")
             sample_id = None
