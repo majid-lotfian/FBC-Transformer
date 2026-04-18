@@ -1,0 +1,5 @@
+# Generated artifacts
+artifacts/
+
+#Python cache
+__pycache__/
