@@ -452,51 +452,40 @@ class FerritinTabularDataset(Dataset):
 # ============================================================
 
 def build_pretraining_model(num_features: int, model_hparams: dict):
-    """
-    TODO SECTION 1B:
-    UPDATE THIS FUNCTION TO MATCH YOUR ACTUAL TabularFoundationModel CONSTRUCTOR.
-
-    You said your pretraining backbone is TabularFoundationModel from src/models/model.py.
-    I do not have its exact __init__ signature, so you must align this function.
-
-    Example possibilities:
-      model = TabularFoundationModel(
-          num_features=num_features,
-          d_model=model_hparams["d_model"],
-          nhead=model_hparams["nhead"],
-          num_layers=model_hparams["num_layers"],
-          dim_feedforward=model_hparams["dim_feedforward"],
-          dropout=model_hparams["dropout"],
-          pooling_type=model_hparams["pooling_type"],
-          regression_head_hidden_dim=model_hparams["regression_head_hidden_dim"],
-          projection_dim=model_hparams["projection_dim"],
-          projection_hidden_dim=model_hparams["projection_hidden_dim"],
-      )
-
-    or maybe your project expects a config object.
-    """
     if TabularFoundationModel is None:
         raise ImportError(
             "Could not import TabularFoundationModel from src.models.model. "
             "Update the import or this builder function."
         )
 
-    # --------- UPDATE THIS BLOCK ----------
-    model = TabularFoundationModel(
-        num_features=num_features,
-        d_model=model_hparams["d_model"],
-        nhead=model_hparams["nhead"],
-        num_layers=model_hparams["num_layers"],
-        dim_feedforward=model_hparams["dim_feedforward"],
-        dropout=model_hparams["dropout"],
-        pooling_type=model_hparams["pooling_type"],
-        regression_head_hidden_dim=model_hparams["regression_head_hidden_dim"],
-        projection_dim=model_hparams["projection_dim"],
-        projection_hidden_dim=model_hparams["projection_hidden_dim"],
-    )
-    # -------------------------------------
-    return model
+    required_keys = ["d_model", "nhead", "num_layers", "dim_feedforward"]
+    missing = [k for k in required_keys if k not in model_hparams]
+    if missing:
+        raise KeyError(
+            f"Missing required model_hparams keys: {missing}. "
+            f"Received keys: {list(model_hparams.keys())}"
+        )
 
+    try:
+        model = TabularFoundationModel(
+            num_features=num_features,
+            d_model=model_hparams["d_model"],
+            nhead=model_hparams["nhead"],
+            num_layers=model_hparams["num_layers"],
+            dim_feedforward=model_hparams["dim_feedforward"],
+            dropout=model_hparams.get("dropout", 0.1),
+            pooling_type=model_hparams.get("pooling_type", "mean"),
+            regression_head_hidden_dim=model_hparams.get("regression_head_hidden_dim"),
+            projection_dim=model_hparams.get("projection_dim"),
+            projection_hidden_dim=model_hparams.get("projection_hidden_dim"),
+        )
+    except TypeError as e:
+        raise TypeError(
+            "TabularFoundationModel constructor does not match the arguments used in "
+            "build_pretraining_model(). Check src/models/model.py __init__ signature."
+        ) from e
+
+    return model
 
 class FerritinRegressorFromFoundation(nn.Module):
     """
