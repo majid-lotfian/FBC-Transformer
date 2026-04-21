@@ -35,6 +35,13 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import copy
 import json
 import math
@@ -102,7 +109,7 @@ CONFIG = {
 
     # Optional: list of canonical feature names in the exact pretraining order.
     # If provided, script will force this order.
-    "canonical_feature_list_path": "PATH/TO/feature_titles.json",  # optional; can be None
+    "canonical_feature_list_path": None,  # optional; can be None
     # Expected file example:
     # {"amsterdam_features": ["feat1", "feat2", ...]}
     # or a plain list ["feat1", "feat2", ...]
