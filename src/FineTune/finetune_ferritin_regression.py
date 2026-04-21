@@ -24,8 +24,7 @@
 #
 # ------------------------------------------------------------
 # IMPORTANT: TWO SMALL TODO SECTIONS TO UPDATE
-# 1) build_pretraining_model(...)
-# 2) optional schema loading if you want canonical mapping here
+# 1) optional schema loading if you want canonical mapping here
 # ------------------------------------------------------------
 #
 # Example:
@@ -89,15 +88,15 @@ CONFIG = {
     # -------------------------------
     # Data
     # -------------------------------
-    "train_csv": "PATH/TO/train.csv",
-    "val_csv": "PATH/TO/val.csv",
-    "test_csv": "PATH/TO/test.csv",
+    "train_csv": "Z:/Bloodcounts/Majid-sensitive/splits/with-ferritin/train_with_ferritin.csv",
+    "val_csv": "Z:/Bloodcounts/Majid-sensitive/splits/with-ferritin/val_with_ferritin.csv",
+    "test_csv": "Z:/Bloodcounts/Majid-sensitive/splits/with-ferritin/test_with_ferritin.csv",
     "target_col": "ferritin",
 
     # If your downstream CSVs are raw cohort columns and need mapping:
     "apply_canonical_mapping": False,
     "cohort_name": "amsterdam",
-    "schema_path": "PATH/TO/master_schema.yaml",   # update if used
+    "schema_path": "I:/FBC/Full_Blood_Count_Dataset_features.xlsx",   # update if used
 
     # If the files are already canonical and in correct order, set False above.
 
@@ -111,13 +110,13 @@ CONFIG = {
     # -------------------------------
     # Checkpoints
     # -------------------------------
-    "checkpoint_dir": "PATH/TO/checkpoints",
-    "checkpoint_glob": "*.pt",   # e.g. "*.pt" or "best_model.pt"
+    "checkpoint_dir": "Z:/Bloodcounts/FBC-Transformer/artifacts/blood_foundation_v2_20260420_072236/checkpoints",
+    "checkpoint_glob": "best_model.pt",   # e.g. "*.pt" or "best_model.pt"
 
     # -------------------------------
     # Output
     # -------------------------------
-    "output_dir": "PATH/TO/output_ferritin",
+    "output_dir": "Z:/Bloodcounts/FBC-Transformer/finetunningOutput/output_ferritin",
 
     # -------------------------------
     # Pretraining model hyperparams
