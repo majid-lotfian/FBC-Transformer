@@ -42,6 +42,23 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+try:
+    from src.data.loader import load_master_schema
+except Exception:
+    load_master_schema = None
+
+
+try:
+    from src.data.mapper import build_canonical_dataframe, normalize_dataframe_columns
+except Exception:
+    build_canonical_dataframe = None
+    normalize_dataframe_columns = None
+
+try:
+    from src.models.model import TabularFoundationModel
+except Exception:
+    TabularFoundationModel = None
+
 import copy
 import json
 import math
@@ -101,7 +118,7 @@ CONFIG = {
     "target_col": "ferritin",
 
     # If your downstream CSVs are raw cohort columns and need mapping:
-    "apply_canonical_mapping": False,
+    "apply_canonical_mapping": True,
     "cohort_name": "amsterdam",
     "schema_path": "I:/FBC/Full_Blood_Count_Dataset_features.xlsx",   # update if used
 
@@ -130,15 +147,15 @@ CONFIG = {
     # UPDATE THESE TO MATCH YOUR PRETRAINING CONFIG
     # -------------------------------
     "model_hparams": {
-        "d_model": 192,
-        "nhead": 8,
-        "num_layers": 4,
-        "dim_feedforward": 384,
+        "d_model": 128,
+        "nhead": 4,
+        "num_layers": 3,
+        "dim_feedforward": 256,
         "dropout": 0.1,
         "pooling_type": "mean",
-        "regression_head_hidden_dim": 192,
-        "projection_dim": 128,
-        "projection_hidden_dim": 192,
+        "regression_head_hidden_dim": None,
+        "projection_dim": None,
+        "projection_hidden_dim": None,
     },
 
     # -------------------------------
@@ -181,16 +198,7 @@ CONFIG = {
 # If you want to use your project’s actual mapper/schema/model directly,
 # update these imports if their paths differ.
 
-try:
-    from src.data.mapper import build_canonical_dataframe, normalize_dataframe_columns
-except Exception:
-    build_canonical_dataframe = None
-    normalize_dataframe_columns = None
 
-try:
-    from src.models.model import TabularFoundationModel
-except Exception:
-    TabularFoundationModel = None
 
 
 # ============================================================
@@ -850,9 +858,9 @@ def train_catboost_regressor(
 # ============================================================
 
 def maybe_apply_canonical_mapping(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    out = df.copy()
+
     if not cfg["apply_canonical_mapping"]:
-        # normalize column names for consistency
-        out = df.copy()
         out.columns = [normalize_name(c) for c in out.columns]
         return out
 
@@ -861,18 +869,39 @@ def maybe_apply_canonical_mapping(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
             "apply_canonical_mapping=True but build_canonical_dataframe could not be imported."
         )
 
-    # TODO SECTION 2:
-    # Update schema loading if your project uses a different loader.
-    #
-    # Example if you have:
-    #   from src.data.loader import load_master_schema
-    #   schema = load_master_schema(cfg["schema_path"])
-    #
-    # For now, this is a placeholder.
-    raise NotImplementedError(
-        "Please update schema loading inside maybe_apply_canonical_mapping() "
-        "to match your project if you want raw->canonical mapping here."
+    if load_master_schema is None:
+        raise ImportError(
+            "apply_canonical_mapping=True but load_master_schema could not be imported "
+            "from src.data.loader."
+        )
+
+    target_col = normalize_name(cfg["target_col"])
+    out.columns = [normalize_name(c) for c in out.columns]
+
+    # separate target before mapping
+    target_series = None
+    if target_col in out.columns:
+        target_series = out[target_col].copy()
+        feature_df = out.drop(columns=[target_col])
+    else:
+        feature_df = out
+
+    schema = load_master_schema(cfg["schema_path"])
+
+    mapped_df = build_canonical_dataframe(
+        df=feature_df,
+        schema=schema,
+        cohort_name=cfg["cohort_name"],
+        fill_missing_features=True,
+        strict=False,
     )
+
+    mapped_df.columns = [normalize_name(c) for c in mapped_df.columns]
+
+    if target_series is not None:
+        mapped_df[target_col] = target_series.values
+
+    return mapped_df
 
 
 def load_all_splits(cfg: dict) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -883,6 +912,10 @@ def load_all_splits(cfg: dict) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame
     train_df = maybe_apply_canonical_mapping(train_df, cfg)
     val_df = maybe_apply_canonical_mapping(val_df, cfg)
     test_df = maybe_apply_canonical_mapping(test_df, cfg)
+
+    print("Mapped train shape:", train_df.shape)
+    print("Mapped val shape:", val_df.shape)
+    print("Mapped test shape:", test_df.shape)
 
     # normalize target column name too
     target_col = normalize_name(cfg["target_col"])
@@ -919,6 +952,9 @@ def run_one_transform_setting(
         target_col=cfg["target_col"],
         feature_order=feature_order,
     )
+
+    print("Number of features used:", len(feature_cols))
+    print("First 20 features:", feature_cols[:20])
 
     # Torch datasets
     train_ds = FerritinTabularDataset(X_train_df, y_train, feature_cols, log1p_target=use_log1p_target)
