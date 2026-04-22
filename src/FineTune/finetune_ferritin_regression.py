@@ -1,37 +1,4 @@
-# pip install pandas numpy scipy scikit-learn torch xgboost lightgbm catboost pyarrow
-
-# ferritin_downstream_experiment.py
-# ============================================================
-# Fine-tune pretrained TabularFoundationModel checkpoints on
-# ferritin regression, compare against:
-#   - same architecture from scratch
-#   - MLPRegressor
-#   - XGBoost
-#   - LightGBM
-#   - CatBoost
-#
-# This script is adapted to your setup:
-#   - feature-as-token
-#   - no CLS token
-#   - pooled_embedding used for downstream head
-#   - checkpoint weights under checkpoint["model_state_dict"]
-#   - preprocessing aligned with pretraining:
-#       * numeric conversion
-#       * train-only z-score
-#       * clip to [-10, 10]
-#       * zero-fill for model input
-#       * observed mask from NaNs
-#
-# ------------------------------------------------------------
-# IMPORTANT: TWO SMALL TODO SECTIONS TO UPDATE
-# 1) optional schema loading if you want canonical mapping here
-# ------------------------------------------------------------
-#
-# Example:
-# python ferritin_downstream_experiment.py
-#
-# Update the CONFIG section below first.
-# ============================================================
+# pip install pandas numpy scipy scikit-learn torch xgboost lightgbm catboost pyarrow openpyxl
 
 from __future__ import annotations
 
@@ -42,30 +9,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-try:
-    from src.data.loader import load_master_schema
-except Exception:
-    load_master_schema = None
-
-
-try:
-    from src.data.mapper import build_canonical_dataframe, normalize_dataframe_columns
-except Exception:
-    build_canonical_dataframe = None
-    normalize_dataframe_columns = None
-
-try:
-    from src.models.model import TabularFoundationModel
-except Exception:
-    TabularFoundationModel = None
-
 import copy
 import json
 import math
-import os
 import random
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -84,7 +32,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-# Optional baselines
 try:
     from xgboost import XGBRegressor
     HAS_XGB = True
@@ -104,48 +51,24 @@ try:
 except Exception:
     HAS_CAT = False
 
-# ============================================================
-# CONFIG - UPDATE PATHS HERE
-# ============================================================
 
 CONFIG = {
-    # -------------------------------
-    # Data
-    # -------------------------------
-    "train_csv": "Z:/Bloodcounts/Majid-sensitive/splits/with-ferritin/train_with_ferritin.csv",
-    "val_csv": "Z:/Bloodcounts/Majid-sensitive/splits/with-ferritin/val_with_ferritin.csv",
-    "test_csv": "Z:/Bloodcounts/Majid-sensitive/splits/with-ferritin/test_with_ferritin.csv",
+    "train_csv": "PATH/TO/train.csv",
+    "val_csv": "PATH/TO/val.csv",
+    "test_csv": "PATH/TO/test.csv",
     "target_col": "ferritin",
 
-    # If your downstream CSVs are raw cohort columns and need mapping:
     "apply_canonical_mapping": True,
     "cohort_name": "amsterdam",
-    "schema_path": "I:/FBC/Full_Blood_Count_Dataset_features.xlsx",   # update if used
+    "schema_path": "PATH/TO/master_schema.xlsx",
 
-    # If the files are already canonical and in correct order, set False above.
+    "canonical_feature_list_path": None,
 
-    # Optional: list of canonical feature names in the exact pretraining order.
-    # If provided, script will force this order.
-    "canonical_feature_list_path": None,  # optional; can be None
-    # Expected file example:
-    # {"amsterdam_features": ["feat1", "feat2", ...]}
-    # or a plain list ["feat1", "feat2", ...]
+    "checkpoint_dir": "PATH/TO/checkpoints",
+    "checkpoint_glob": "*.pt",
 
-    # -------------------------------
-    # Checkpoints
-    # -------------------------------
-    "checkpoint_dir": "Z:/Bloodcounts/FBC-Transformer/artifacts/blood_foundation_v2_20260420_072236/checkpoints",
-    "checkpoint_glob": "best_model.pt",   # e.g. "*.pt" or "best_model.pt"
+    "output_dir": "PATH/TO/output_ferritin_low_label",
 
-    # -------------------------------
-    # Output
-    # -------------------------------
-    "output_dir": "Z:/Bloodcounts/FBC-Transformer/finetunningOutput/output_ferritin",
-
-    # -------------------------------
-    # Pretraining model hyperparams
-    # UPDATE THESE TO MATCH YOUR PRETRAINING CONFIG
-    # -------------------------------
     "model_hparams": {
         "d_model": 128,
         "nhead": 4,
@@ -158,15 +81,9 @@ CONFIG = {
         "projection_hidden_dim": None,
     },
 
-    # -------------------------------
-    # Downstream head
-    # -------------------------------
     "downstream_head_hidden_dim": 192,
     "downstream_head_dropout": 0.1,
 
-    # -------------------------------
-    # Training
-    # -------------------------------
     "epochs": 50,
     "batch_size": 256,
     "lr": 1e-4,
@@ -176,34 +93,33 @@ CONFIG = {
     "seed": 42,
     "num_workers": 0,
 
-    # -------------------------------
-    # Device
-    # -------------------------------
     "device": "cuda" if torch.cuda.is_available() else "cpu",
 
-    # -------------------------------
-    # Run both target transforms
-    # -------------------------------
     "run_raw_target": True,
     "run_log1p_target": True,
+
+    "label_fractions": [1.0, 0.5, 0.3, 0.15, 0.10, 0.05],
+    "subsample_seed": 42,
 }
 
 
-# ============================================================
-# OPTIONAL PROJECT IMPORTS
-# UPDATE IF NEEDED
-# ============================================================
+try:
+    from src.data.mapper import build_canonical_dataframe, normalize_dataframe_columns
+except Exception:
+    build_canonical_dataframe = None
+    normalize_dataframe_columns = None
 
-# TODO SECTION 1A:
-# If you want to use your project’s actual mapper/schema/model directly,
-# update these imports if their paths differ.
+try:
+    from src.data.loader import load_master_schema
+except Exception:
+    load_master_schema = None
 
+try:
+    from src.models.model import TabularFoundationModel
+except Exception as e:
+    print("IMPORT ERROR for TabularFoundationModel:", repr(e))
+    raise
 
-
-
-# ============================================================
-# UTILITIES
-# ============================================================
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -241,7 +157,6 @@ def maybe_load_feature_order(path: Optional[str]) -> Optional[List[str]]:
     if isinstance(obj, dict):
         if "amsterdam_features" in obj:
             return [normalize_name(x) for x in obj["amsterdam_features"]]
-        # fallback: first list-like value
         for _, v in obj.items():
             if isinstance(v, list):
                 return [normalize_name(x) for x in v]
@@ -274,10 +189,6 @@ def save_json(obj: dict, path: Path) -> None:
         json.dump(obj, f, indent=2)
 
 
-# ============================================================
-# PREPROCESSING ALIGNED WITH PRETRAINING
-# ============================================================
-
 @dataclass
 class StandardizationStats:
     mean: pd.Series
@@ -286,12 +197,7 @@ class StandardizationStats:
 
 def convert_columns_to_numeric(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-
-    # Also handle simple dash-as-missing
-    out = out.replace("-", np.nan)
-    out = out.replace(" - ", np.nan)
-    out = out.replace("", np.nan)
-
+    out = out.replace(["-", " - ", ""], np.nan)
     for c in out.columns:
         out[c] = pd.to_numeric(out[c], errors="coerce")
     return out
@@ -310,20 +216,16 @@ def apply_standardization(
     clip_max: float = 10.0,
 ) -> pd.DataFrame:
     out = df.copy()
-
     for c in out.columns:
         col = out[c].astype(float)
         mean = stats.mean[c]
         std = stats.std[c]
-
         if pd.isna(std) or std == 0:
             standardized = col - mean
         else:
             standardized = (col - mean) / std
-
         standardized = standardized.clip(lower=clip_min, upper=clip_max)
         out[c] = standardized
-
     return out
 
 
@@ -334,7 +236,6 @@ def prepare_features_and_target(
     target_col: str,
     feature_order: Optional[List[str]] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray, np.ndarray, List[str], StandardizationStats]:
-    # target_col should not be in features
     if target_col not in train_df.columns:
         raise ValueError(f"Target column '{target_col}' not found in train_df.")
     if target_col not in val_df.columns:
@@ -346,7 +247,6 @@ def prepare_features_and_target(
     y_val = pd.to_numeric(val_df[target_col], errors="coerce").values.astype(np.float32)
     y_test = pd.to_numeric(test_df[target_col], errors="coerce").values.astype(np.float32)
 
-    # drop rows with missing target
     train_keep = ~np.isnan(y_train)
     val_keep = ~np.isnan(y_val)
     test_keep = ~np.isnan(y_test)
@@ -361,7 +261,6 @@ def prepare_features_and_target(
 
     feature_cols = [c for c in train_df.columns if c != target_col]
 
-    # force order if provided
     if feature_order is not None:
         missing_train = [c for c in feature_order if c not in train_df.columns]
         missing_val = [c for c in feature_order if c not in val_df.columns]
@@ -376,22 +275,16 @@ def prepare_features_and_target(
             )
         feature_cols = feature_order
     else:
-        # keep train order but ensure same columns in all splits
-        feature_cols = [
-            c for c in feature_cols
-            if c in val_df.columns and c in test_df.columns
-        ]
+        feature_cols = [c for c in feature_cols if c in val_df.columns and c in test_df.columns]
 
     X_train = train_df[feature_cols].copy()
     X_val = val_df[feature_cols].copy()
     X_test = test_df[feature_cols].copy()
 
-    # numeric conversion aligned with pretraining
     X_train = convert_columns_to_numeric(X_train)
     X_val = convert_columns_to_numeric(X_val)
     X_test = convert_columns_to_numeric(X_test)
 
-    # fit train-only stats and standardize
     stats = fit_standardization_stats(X_train)
     X_train_std = apply_standardization(X_train, stats)
     X_val_std = apply_standardization(X_val, stats)
@@ -400,23 +293,32 @@ def prepare_features_and_target(
     return X_train_std, X_val_std, X_test_std, y_train, y_val, y_test, feature_cols, stats
 
 
-# ============================================================
-# DATASET FOR FOUNDATION MODEL STYLE INPUT
-# ============================================================
+def subsample_training_data(
+    X_train_df: pd.DataFrame,
+    y_train: np.ndarray,
+    fraction: float,
+    seed: int,
+) -> Tuple[pd.DataFrame, np.ndarray]:
+    if not (0 < fraction <= 1.0):
+        raise ValueError(f"fraction must be in (0, 1], got {fraction}")
+
+    if fraction == 1.0:
+        return X_train_df.reset_index(drop=True), y_train.copy()
+
+    n = len(X_train_df)
+    n_keep = max(1, int(round(n * fraction)))
+
+    rng = np.random.default_rng(seed)
+    indices = rng.choice(n, size=n_keep, replace=False)
+    indices = np.sort(indices)
+
+    return (
+        X_train_df.iloc[indices].reset_index(drop=True),
+        y_train[indices].copy(),
+    )
+
 
 class FerritinTabularDataset(Dataset):
-    """
-    Produces:
-      feature_ids:   [F]
-      values:        [F]
-      observed_mask: [F]
-      input_mask:    [F]
-
-    missing values:
-      - observed_mask = ~isnan(value)
-      - values are zero-filled before model input
-      - input_mask = 1 for all tokens in downstream task
-    """
     def __init__(
         self,
         X_df: pd.DataFrame,
@@ -461,17 +363,7 @@ class FerritinTabularDataset(Dataset):
         }
 
 
-# ============================================================
-# MODEL WRAPPER
-# ============================================================
-
 def build_pretraining_model(num_features: int, model_hparams: dict):
-    if TabularFoundationModel is None:
-        raise ImportError(
-            "Could not import TabularFoundationModel from src.models.model. "
-            "Update the import or this builder function."
-        )
-
     required_keys = ["d_model", "nhead", "num_layers", "dim_feedforward"]
     missing = [k for k in required_keys if k not in model_hparams]
     if missing:
@@ -501,11 +393,8 @@ def build_pretraining_model(num_features: int, model_hparams: dict):
 
     return model
 
+
 class FerritinRegressorFromFoundation(nn.Module):
-    """
-    Wraps pretrained/scratch TabularFoundationModel and adds a regression head
-    on top of pooled_embedding.
-    """
     def __init__(
         self,
         backbone: nn.Module,
@@ -538,7 +427,6 @@ class FerritinRegressorFromFoundation(nn.Module):
 
         if not isinstance(out, dict):
             raise ValueError("Backbone forward() is expected to return a dict.")
-
         if "pooled_embedding" not in out:
             raise ValueError("Backbone output dict does not contain 'pooled_embedding'.")
 
@@ -567,10 +455,6 @@ def load_pretrained_checkpoint(backbone: nn.Module, checkpoint_path: str | Path)
         "unexpected_keys": list(incompatible.unexpected_keys),
     }
 
-
-# ============================================================
-# TRAINING
-# ============================================================
 
 @dataclass
 class TrainConfig:
@@ -734,10 +618,6 @@ def evaluate_target_space(y_true: np.ndarray, y_pred: np.ndarray, use_log1p: boo
     return compute_metrics(y_true_eval, y_pred_eval)
 
 
-# ============================================================
-# BASELINES
-# ============================================================
-
 def train_mlp_regressor(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -853,10 +733,6 @@ def train_catboost_regressor(
     return model, compute_metrics(y_val, val_pred)
 
 
-# ============================================================
-# DATA LOADING + OPTIONAL CANONICAL MAPPING
-# ============================================================
-
 def maybe_apply_canonical_mapping(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     out = df.copy()
 
@@ -878,7 +754,6 @@ def maybe_apply_canonical_mapping(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     target_col = normalize_name(cfg["target_col"])
     out.columns = [normalize_name(c) for c in out.columns]
 
-    # separate target before mapping
     target_series = None
     if target_col in out.columns:
         target_series = out[target_col].copy()
@@ -913,11 +788,6 @@ def load_all_splits(cfg: dict) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame
     val_df = maybe_apply_canonical_mapping(val_df, cfg)
     test_df = maybe_apply_canonical_mapping(test_df, cfg)
 
-    print("Mapped train shape:", train_df.shape)
-    print("Mapped val shape:", val_df.shape)
-    print("Mapped test shape:", test_df.shape)
-
-    # normalize target column name too
     target_col = normalize_name(cfg["target_col"])
     train_df.columns = [normalize_name(c) for c in train_df.columns]
     val_df.columns = [normalize_name(c) for c in val_df.columns]
@@ -926,12 +796,12 @@ def load_all_splits(cfg: dict) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame
     if target_col != cfg["target_col"]:
         cfg["target_col"] = target_col
 
+    print("Mapped train shape:", train_df.shape)
+    print("Mapped val shape:", val_df.shape)
+    print("Mapped test shape:", test_df.shape)
+
     return train_df, val_df, test_df
 
-
-# ============================================================
-# EXPERIMENT
-# ============================================================
 
 def run_one_transform_setting(
     transform_name: str,
@@ -955,11 +825,6 @@ def run_one_transform_setting(
 
     print("Number of features used:", len(feature_cols))
     print("First 20 features:", feature_cols[:20])
-
-    # Torch datasets
-    train_ds = FerritinTabularDataset(X_train_df, y_train, feature_cols, log1p_target=use_log1p_target)
-    val_ds = FerritinTabularDataset(X_val_df, y_val, feature_cols, log1p_target=use_log1p_target)
-    test_ds = FerritinTabularDataset(X_test_df, y_test, feature_cols, log1p_target=use_log1p_target)
 
     train_cfg = TrainConfig(
         epochs=cfg["epochs"],
@@ -986,33 +851,132 @@ def run_one_transform_setting(
         output_dir / "run_config.json",
     )
 
-    # ----------------------------------------
-    # Pretrained checkpoints
-    # ----------------------------------------
     checkpoint_paths = sorted(Path(cfg["checkpoint_dir"]).glob(cfg["checkpoint_glob"]))
 
-    for ckpt_path in checkpoint_paths:
-        print(f"\n=== [{transform_name}] Pretrained checkpoint: {ckpt_path.name} ===")
+    for label_fraction in cfg["label_fractions"]:
+        print(f"\n===== [{transform_name}] label_fraction={label_fraction:.2f} =====")
 
+        X_train_frac_df, y_train_frac = subsample_training_data(
+            X_train_df=X_train_df,
+            y_train=y_train,
+            fraction=label_fraction,
+            seed=cfg["subsample_seed"],
+        )
+
+        train_ds = FerritinTabularDataset(
+            X_train_frac_df,
+            y_train_frac,
+            feature_cols,
+            log1p_target=use_log1p_target,
+        )
+        val_ds = FerritinTabularDataset(
+            X_val_df,
+            y_val,
+            feature_cols,
+            log1p_target=use_log1p_target,
+        )
+        test_ds = FerritinTabularDataset(
+            X_test_df,
+            y_test,
+            feature_cols,
+            log1p_target=use_log1p_target,
+        )
+
+        print("Train rows used:", len(X_train_frac_df))
+        print("Val rows:", len(X_val_df))
+        print("Test rows:", len(X_test_df))
+
+        fraction_tag = f"frac_{str(label_fraction).replace('.', 'p')}"
+        fraction_output_dir = output_dir / fraction_tag
+        fraction_output_dir.mkdir(parents=True, exist_ok=True)
+
+        for ckpt_path in checkpoint_paths:
+            print(f"\n=== [{transform_name}] [{fraction_tag}] Pretrained checkpoint: {ckpt_path.name} ===")
+
+            try:
+                backbone = build_pretraining_model(
+                    num_features=len(feature_cols),
+                    model_hparams=cfg["model_hparams"],
+                )
+
+                load_info = load_pretrained_checkpoint(backbone, ckpt_path)
+
+                model = FerritinRegressorFromFoundation(
+                    backbone=backbone,
+                    d_model=cfg["model_hparams"]["d_model"],
+                    head_hidden_dim=cfg["downstream_head_hidden_dim"],
+                    head_dropout=cfg["downstream_head_dropout"],
+                )
+
+                model, history = train_torch_model(model, train_ds, val_ds, train_cfg)
+
+                val_pred = predict_torch_model(model, val_ds, train_cfg)
+                test_pred = predict_torch_model(model, test_ds, train_cfg)
+
+                val_target_used = np.log1p(y_val) if use_log1p_target else y_val
+                test_target_used = np.log1p(y_test) if use_log1p_target else y_test
+
+                val_metrics = evaluate_target_space(val_target_used, val_pred, use_log1p_target)
+                test_metrics = evaluate_target_space(test_target_used, test_pred, use_log1p_target)
+
+                results.append({
+                    "target_transform": transform_name,
+                    "label_fraction": label_fraction,
+                    "train_rows_used": len(X_train_frac_df),
+                    "val_rows": len(X_val_df),
+                    "test_rows": len(X_test_df),
+                    "model_family": "transformer_pretrained",
+                    "model_name": ckpt_path.stem,
+                    "checkpoint_path": str(ckpt_path),
+                    "num_features": len(feature_cols),
+                    "missing_keys_count": len(load_info["missing_keys"]),
+                    "unexpected_keys_count": len(load_info["unexpected_keys"]),
+                    **{f"val_{k}": v for k, v in val_metrics.items()},
+                    **{f"test_{k}": v for k, v in test_metrics.items()},
+                })
+
+                save_json(
+                    {
+                        "history": history,
+                        "load_info": load_info,
+                        "val_metrics": val_metrics,
+                        "test_metrics": test_metrics,
+                    },
+                    fraction_output_dir / f"{ckpt_path.stem}_details.json",
+                )
+
+            except Exception as e:
+                print(f"[FAILED] {ckpt_path.name}: {e}")
+                results.append({
+                    "target_transform": transform_name,
+                    "label_fraction": label_fraction,
+                    "train_rows_used": len(X_train_frac_df),
+                    "val_rows": len(X_val_df),
+                    "test_rows": len(X_test_df),
+                    "model_family": "transformer_pretrained",
+                    "model_name": ckpt_path.stem,
+                    "checkpoint_path": str(ckpt_path),
+                    "error": str(e),
+                })
+
+        print(f"\n=== [{transform_name}] [{fraction_tag}] Transformer from scratch ===")
         try:
-            backbone = build_pretraining_model(
+            scratch_backbone = build_pretraining_model(
                 num_features=len(feature_cols),
                 model_hparams=cfg["model_hparams"],
             )
 
-            load_info = load_pretrained_checkpoint(backbone, ckpt_path)
-
-            model = FerritinRegressorFromFoundation(
-                backbone=backbone,
+            scratch_model = FerritinRegressorFromFoundation(
+                backbone=scratch_backbone,
                 d_model=cfg["model_hparams"]["d_model"],
                 head_hidden_dim=cfg["downstream_head_hidden_dim"],
                 head_dropout=cfg["downstream_head_dropout"],
             )
 
-            model, history = train_torch_model(model, train_ds, val_ds, train_cfg)
+            scratch_model, scratch_history = train_torch_model(scratch_model, train_ds, val_ds, train_cfg)
 
-            val_pred = predict_torch_model(model, val_ds, train_cfg)
-            test_pred = predict_torch_model(model, test_ds, train_cfg)
+            val_pred = predict_torch_model(scratch_model, val_ds, train_cfg)
+            test_pred = predict_torch_model(scratch_model, test_ds, train_cfg)
 
             val_target_used = np.log1p(y_val) if use_log1p_target else y_val
             test_target_used = np.log1p(y_test) if use_log1p_target else y_test
@@ -1022,236 +986,215 @@ def run_one_transform_setting(
 
             results.append({
                 "target_transform": transform_name,
-                "model_family": "transformer_pretrained",
-                "model_name": ckpt_path.stem,
-                "checkpoint_path": str(ckpt_path),
+                "label_fraction": label_fraction,
+                "train_rows_used": len(X_train_frac_df),
+                "val_rows": len(X_val_df),
+                "test_rows": len(X_test_df),
+                "model_family": "transformer_scratch",
+                "model_name": "transformer_scratch",
+                "checkpoint_path": "",
+                "missing_keys_count": 0,
+                "unexpected_keys_count": 0,
                 "num_features": len(feature_cols),
-                "missing_keys_count": len(load_info["missing_keys"]),
-                "unexpected_keys_count": len(load_info["unexpected_keys"]),
                 **{f"val_{k}": v for k, v in val_metrics.items()},
                 **{f"test_{k}": v for k, v in test_metrics.items()},
             })
 
             save_json(
                 {
-                    "history": history,
-                    "load_info": load_info,
+                    "history": scratch_history,
                     "val_metrics": val_metrics,
                     "test_metrics": test_metrics,
                 },
-                output_dir / f"{ckpt_path.stem}_details.json",
+                fraction_output_dir / "transformer_scratch_details.json",
             )
 
         except Exception as e:
-            print(f"[FAILED] {ckpt_path.name}: {e}")
+            print(f"[FAILED] transformer_scratch: {e}")
             results.append({
                 "target_transform": transform_name,
-                "model_family": "transformer_pretrained",
-                "model_name": ckpt_path.stem,
-                "checkpoint_path": str(ckpt_path),
+                "label_fraction": label_fraction,
+                "train_rows_used": len(X_train_frac_df),
+                "val_rows": len(X_val_df),
+                "test_rows": len(X_test_df),
+                "model_family": "transformer_scratch",
+                "model_name": "transformer_scratch",
+                "checkpoint_path": "",
                 "error": str(e),
             })
 
-    # ----------------------------------------
-    # Transformer from scratch
-    # ----------------------------------------
-    print(f"\n=== [{transform_name}] Transformer from scratch ===")
-    try:
-        scratch_backbone = build_pretraining_model(
-            num_features=len(feature_cols),
-            model_hparams=cfg["model_hparams"],
-        )
+        X_train_np = np.where(np.isnan(X_train_frac_df.values), 0.0, X_train_frac_df.values).astype(np.float32)
+        X_val_np = np.where(np.isnan(X_val_df.values), 0.0, X_val_df.values).astype(np.float32)
+        X_test_np = np.where(np.isnan(X_test_df.values), 0.0, X_test_df.values).astype(np.float32)
 
-        scratch_model = FerritinRegressorFromFoundation(
-            backbone=scratch_backbone,
-            d_model=cfg["model_hparams"]["d_model"],
-            head_hidden_dim=cfg["downstream_head_hidden_dim"],
-            head_dropout=cfg["downstream_head_dropout"],
-        )
+        y_train_baseline = np.log1p(y_train_frac) if use_log1p_target else y_train_frac
+        y_val_baseline = np.log1p(y_val) if use_log1p_target else y_val
+        y_test_baseline = np.log1p(y_test) if use_log1p_target else y_test
 
-        scratch_model, scratch_history = train_torch_model(scratch_model, train_ds, val_ds, train_cfg)
-
-        val_pred = predict_torch_model(scratch_model, val_ds, train_cfg)
-        test_pred = predict_torch_model(scratch_model, test_ds, train_cfg)
-
-        val_target_used = np.log1p(y_val) if use_log1p_target else y_val
-        test_target_used = np.log1p(y_test) if use_log1p_target else y_test
-
-        val_metrics = evaluate_target_space(val_target_used, val_pred, use_log1p_target)
-        test_metrics = evaluate_target_space(test_target_used, test_pred, use_log1p_target)
-
-        results.append({
-            "target_transform": transform_name,
-            "model_family": "transformer_scratch",
-            "model_name": "transformer_scratch",
-            "checkpoint_path": "",
-            "missing_keys_count": 0,
-            "unexpected_keys_count": 0,
-            "num_features": len(feature_cols),
-            **{f"val_{k}": v for k, v in val_metrics.items()},
-            **{f"test_{k}": v for k, v in test_metrics.items()},
-        })
-
-        save_json(
-            {
-                "history": scratch_history,
-                "val_metrics": val_metrics,
-                "test_metrics": test_metrics,
-            },
-            output_dir / "transformer_scratch_details.json",
-        )
-
-    except Exception as e:
-        print(f"[FAILED] transformer_scratch: {e}")
-        results.append({
-            "target_transform": transform_name,
-            "model_family": "transformer_scratch",
-            "model_name": "transformer_scratch",
-            "checkpoint_path": "",
-            "error": str(e),
-        })
-
-    # ----------------------------------------
-    # Traditional baselines
-    # Tree models get zero-filled standardized data here for consistency.
-    # If you want, you can switch them to unstandardized imputed values later.
-    # ----------------------------------------
-    X_train_np = np.where(np.isnan(X_train_df.values), 0.0, X_train_df.values).astype(np.float32)
-    X_val_np = np.where(np.isnan(X_val_df.values), 0.0, X_val_df.values).astype(np.float32)
-    X_test_np = np.where(np.isnan(X_test_df.values), 0.0, X_test_df.values).astype(np.float32)
-
-    y_train_baseline = np.log1p(y_train) if use_log1p_target else y_train
-    y_val_baseline = np.log1p(y_val) if use_log1p_target else y_val
-    y_test_baseline = np.log1p(y_test) if use_log1p_target else y_test
-
-    print(f"\n=== [{transform_name}] MLPRegressor ===")
-    try:
-        mlp_model, _ = train_mlp_regressor(
-            X_train_np, y_train_baseline, X_val_np, y_val_baseline, cfg["seed"]
-        )
-        val_pred = mlp_model.predict(X_val_np)
-        test_pred = mlp_model.predict(X_test_np)
-
-        val_metrics = evaluate_target_space(y_val_baseline, val_pred, use_log1p_target)
-        test_metrics = evaluate_target_space(y_test_baseline, test_pred, use_log1p_target)
-
-        results.append({
-            "target_transform": transform_name,
-            "model_family": "baseline",
-            "model_name": "mlp_regressor",
-            "checkpoint_path": "",
-            "num_features": len(feature_cols),
-            **{f"val_{k}": v for k, v in val_metrics.items()},
-            **{f"test_{k}": v for k, v in test_metrics.items()},
-        })
-    except Exception as e:
-        print(f"[FAILED] mlp_regressor: {e}")
-        results.append({
-            "target_transform": transform_name,
-            "model_family": "baseline",
-            "model_name": "mlp_regressor",
-            "checkpoint_path": "",
-            "error": str(e),
-        })
-
-    print(f"\n=== [{transform_name}] XGBoost ===")
-    if HAS_XGB:
+        print(f"\n=== [{transform_name}] [{fraction_tag}] MLPRegressor ===")
         try:
-            xgb_model, _ = train_xgboost_regressor(
+            mlp_model, _ = train_mlp_regressor(
                 X_train_np, y_train_baseline, X_val_np, y_val_baseline, cfg["seed"]
             )
-            val_pred = xgb_model.predict(X_val_np)
-            test_pred = xgb_model.predict(X_test_np)
+            val_pred = mlp_model.predict(X_val_np)
+            test_pred = mlp_model.predict(X_test_np)
 
             val_metrics = evaluate_target_space(y_val_baseline, val_pred, use_log1p_target)
             test_metrics = evaluate_target_space(y_test_baseline, test_pred, use_log1p_target)
 
             results.append({
                 "target_transform": transform_name,
+                "label_fraction": label_fraction,
+                "train_rows_used": len(X_train_frac_df),
+                "val_rows": len(X_val_df),
+                "test_rows": len(X_test_df),
                 "model_family": "baseline",
-                "model_name": "xgboost",
+                "model_name": "mlp_regressor",
                 "checkpoint_path": "",
                 "num_features": len(feature_cols),
                 **{f"val_{k}": v for k, v in val_metrics.items()},
                 **{f"test_{k}": v for k, v in test_metrics.items()},
             })
         except Exception as e:
-            print(f"[FAILED] xgboost: {e}")
+            print(f"[FAILED] mlp_regressor: {e}")
             results.append({
                 "target_transform": transform_name,
+                "label_fraction": label_fraction,
+                "train_rows_used": len(X_train_frac_df),
+                "val_rows": len(X_val_df),
+                "test_rows": len(X_test_df),
                 "model_family": "baseline",
-                "model_name": "xgboost",
+                "model_name": "mlp_regressor",
                 "checkpoint_path": "",
                 "error": str(e),
             })
 
-    print(f"\n=== [{transform_name}] LightGBM ===")
-    if HAS_LGBM:
-        try:
-            lgbm_model, _ = train_lightgbm_regressor(
-                X_train_np, y_train_baseline, X_val_np, y_val_baseline, cfg["seed"]
-            )
-            val_pred = lgbm_model.predict(X_val_np)
-            test_pred = lgbm_model.predict(X_test_np)
+        print(f"\n=== [{transform_name}] [{fraction_tag}] XGBoost ===")
+        if HAS_XGB:
+            try:
+                xgb_model, _ = train_xgboost_regressor(
+                    X_train_np, y_train_baseline, X_val_np, y_val_baseline, cfg["seed"]
+                )
+                val_pred = xgb_model.predict(X_val_np)
+                test_pred = xgb_model.predict(X_test_np)
 
-            val_metrics = evaluate_target_space(y_val_baseline, val_pred, use_log1p_target)
-            test_metrics = evaluate_target_space(y_test_baseline, test_pred, use_log1p_target)
+                val_metrics = evaluate_target_space(y_val_baseline, val_pred, use_log1p_target)
+                test_metrics = evaluate_target_space(y_test_baseline, test_pred, use_log1p_target)
 
-            results.append({
-                "target_transform": transform_name,
-                "model_family": "baseline",
-                "model_name": "lightgbm",
-                "checkpoint_path": "",
-                "num_features": len(feature_cols),
-                **{f"val_{k}": v for k, v in val_metrics.items()},
-                **{f"test_{k}": v for k, v in test_metrics.items()},
-            })
-        except Exception as e:
-            print(f"[FAILED] lightgbm: {e}")
-            results.append({
-                "target_transform": transform_name,
-                "model_family": "baseline",
-                "model_name": "lightgbm",
-                "checkpoint_path": "",
-                "error": str(e),
-            })
+                results.append({
+                    "target_transform": transform_name,
+                    "label_fraction": label_fraction,
+                    "train_rows_used": len(X_train_frac_df),
+                    "val_rows": len(X_val_df),
+                    "test_rows": len(X_test_df),
+                    "model_family": "baseline",
+                    "model_name": "xgboost",
+                    "checkpoint_path": "",
+                    "num_features": len(feature_cols),
+                    **{f"val_{k}": v for k, v in val_metrics.items()},
+                    **{f"test_{k}": v for k, v in test_metrics.items()},
+                })
+            except Exception as e:
+                print(f"[FAILED] xgboost: {e}")
+                results.append({
+                    "target_transform": transform_name,
+                    "label_fraction": label_fraction,
+                    "train_rows_used": len(X_train_frac_df),
+                    "val_rows": len(X_val_df),
+                    "test_rows": len(X_test_df),
+                    "model_family": "baseline",
+                    "model_name": "xgboost",
+                    "checkpoint_path": "",
+                    "error": str(e),
+                })
 
-    print(f"\n=== [{transform_name}] CatBoost ===")
-    if HAS_CAT:
-        try:
-            cat_model, _ = train_catboost_regressor(
-                X_train_np, y_train_baseline, X_val_np, y_val_baseline, cfg["seed"]
-            )
-            val_pred = cat_model.predict(X_val_np)
-            test_pred = cat_model.predict(X_test_np)
+        print(f"\n=== [{transform_name}] [{fraction_tag}] LightGBM ===")
+        if HAS_LGBM:
+            try:
+                lgbm_model, _ = train_lightgbm_regressor(
+                    X_train_np, y_train_baseline, X_val_np, y_val_baseline, cfg["seed"]
+                )
+                val_pred = lgbm_model.predict(X_val_np)
+                test_pred = lgbm_model.predict(X_test_np)
 
-            val_metrics = evaluate_target_space(y_val_baseline, val_pred, use_log1p_target)
-            test_metrics = evaluate_target_space(y_test_baseline, test_pred, use_log1p_target)
+                val_metrics = evaluate_target_space(y_val_baseline, val_pred, use_log1p_target)
+                test_metrics = evaluate_target_space(y_test_baseline, test_pred, use_log1p_target)
 
-            results.append({
-                "target_transform": transform_name,
-                "model_family": "baseline",
-                "model_name": "catboost",
-                "checkpoint_path": "",
-                "num_features": len(feature_cols),
-                **{f"val_{k}": v for k, v in val_metrics.items()},
-                **{f"test_{k}": v for k, v in test_metrics.items()},
-            })
-        except Exception as e:
-            print(f"[FAILED] catboost: {e}")
-            results.append({
-                "target_transform": transform_name,
-                "model_family": "baseline",
-                "model_name": "catboost",
-                "checkpoint_path": "",
-                "error": str(e),
-            })
+                results.append({
+                    "target_transform": transform_name,
+                    "label_fraction": label_fraction,
+                    "train_rows_used": len(X_train_frac_df),
+                    "val_rows": len(X_val_df),
+                    "test_rows": len(X_test_df),
+                    "model_family": "baseline",
+                    "model_name": "lightgbm",
+                    "checkpoint_path": "",
+                    "num_features": len(feature_cols),
+                    **{f"val_{k}": v for k, v in val_metrics.items()},
+                    **{f"test_{k}": v for k, v in test_metrics.items()},
+                })
+            except Exception as e:
+                print(f"[FAILED] lightgbm: {e}")
+                results.append({
+                    "target_transform": transform_name,
+                    "label_fraction": label_fraction,
+                    "train_rows_used": len(X_train_frac_df),
+                    "val_rows": len(X_val_df),
+                    "test_rows": len(X_test_df),
+                    "model_family": "baseline",
+                    "model_name": "lightgbm",
+                    "checkpoint_path": "",
+                    "error": str(e),
+                })
+
+        print(f"\n=== [{transform_name}] [{fraction_tag}] CatBoost ===")
+        if HAS_CAT:
+            try:
+                cat_model, _ = train_catboost_regressor(
+                    X_train_np, y_train_baseline, X_val_np, y_val_baseline, cfg["seed"]
+                )
+                val_pred = cat_model.predict(X_val_np)
+                test_pred = cat_model.predict(X_test_np)
+
+                val_metrics = evaluate_target_space(y_val_baseline, val_pred, use_log1p_target)
+                test_metrics = evaluate_target_space(y_test_baseline, test_pred, use_log1p_target)
+
+                results.append({
+                    "target_transform": transform_name,
+                    "label_fraction": label_fraction,
+                    "train_rows_used": len(X_train_frac_df),
+                    "val_rows": len(X_val_df),
+                    "test_rows": len(X_test_df),
+                    "model_family": "baseline",
+                    "model_name": "catboost",
+                    "checkpoint_path": "",
+                    "num_features": len(feature_cols),
+                    **{f"val_{k}": v for k, v in val_metrics.items()},
+                    **{f"test_{k}": v for k, v in test_metrics.items()},
+                })
+            except Exception as e:
+                print(f"[FAILED] catboost: {e}")
+                results.append({
+                    "target_transform": transform_name,
+                    "label_fraction": label_fraction,
+                    "train_rows_used": len(X_train_frac_df),
+                    "val_rows": len(X_val_df),
+                    "test_rows": len(X_test_df),
+                    "model_family": "baseline",
+                    "model_name": "catboost",
+                    "checkpoint_path": "",
+                    "error": str(e),
+                })
 
     results_df = pd.DataFrame(results)
     results_df.to_csv(output_dir / "results.csv", index=False)
 
     if "test_rmse" in results_df.columns:
-        ranked = results_df.sort_values("test_rmse", ascending=True, na_position="last")
+        ranked = results_df.sort_values(
+            by=["label_fraction", "test_rmse"],
+            ascending=[False, True],
+            na_position="last",
+        )
         ranked.to_csv(output_dir / "results_sorted_by_test_rmse.csv", index=False)
 
     return results
@@ -1273,7 +1216,7 @@ def main():
     all_results = []
 
     if CONFIG["run_raw_target"]:
-        print("\n\n##############################")
+        print("\n##############################")
         print("RUNNING RAW FERRITIN")
         print("##############################")
         all_results.extend(
@@ -1288,7 +1231,7 @@ def main():
         )
 
     if CONFIG["run_log1p_target"]:
-        print("\n\n##############################")
+        print("\n##############################")
         print("RUNNING LOG1P(FERRITIN)")
         print("##############################")
         all_results.extend(
@@ -1306,14 +1249,46 @@ def main():
     all_results_df.to_csv(out_dir / "all_results_combined.csv", index=False)
 
     if "test_rmse" in all_results_df.columns:
-        all_ranked = all_results_df.sort_values("test_rmse", ascending=True, na_position="last")
+        all_ranked = all_results_df.sort_values(
+            by=["target_transform", "label_fraction", "test_rmse"],
+            ascending=[True, False, True],
+            na_position="last",
+        )
         all_ranked.to_csv(out_dir / "all_results_ranked_by_test_rmse.csv", index=False)
+
+    plot_cols = [
+        "target_transform",
+        "label_fraction",
+        "train_rows_used",
+        "val_rows",
+        "test_rows",
+        "model_family",
+        "model_name",
+        "checkpoint_path",
+        "num_features",
+        "val_mae",
+        "val_rmse",
+        "val_r2",
+        "val_spearman",
+        "val_median_ae",
+        "test_mae",
+        "test_rmse",
+        "test_r2",
+        "test_spearman",
+        "test_median_ae",
+    ]
+    available_plot_cols = [c for c in plot_cols if c in all_results_df.columns]
+    all_results_df[available_plot_cols].to_csv(
+        out_dir / "results_for_plotting.csv",
+        index=False,
+    )
 
     print("\nDone.")
     print("Saved:")
     print(out_dir / "all_results_combined.csv")
     if "test_rmse" in all_results_df.columns:
         print(out_dir / "all_results_ranked_by_test_rmse.csv")
+    print(out_dir / "results_for_plotting.csv")
 
 
 if __name__ == "__main__":
