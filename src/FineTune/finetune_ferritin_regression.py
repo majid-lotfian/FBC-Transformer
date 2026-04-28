@@ -53,21 +53,21 @@ except Exception:
 
 
 CONFIG = {
-    "train_csv": "PATH/TO/train.csv",
-    "val_csv": "PATH/TO/val.csv",
-    "test_csv": "PATH/TO/test.csv",
+    "train_csv": "Z:/Bloodcounts/Majid-sensitive/splits/with-ferritin/train_with_ferritin.csv",
+    "val_csv": "Z:/Bloodcounts/Majid-sensitive/splits/with-ferritin/val_with_ferritin.csv",
+    "test_csv": "Z:/Bloodcounts/Majid-sensitive/splits/with-ferritin/test_with_ferritin.csv",
     "target_col": "ferritin",
 
     "apply_canonical_mapping": True,
     "cohort_name": "amsterdam",
-    "schema_path": "PATH/TO/master_schema.xlsx",
+    "schema_path": "Z:/Bloodcounts/FBC-Transformer/data/schema.xlsx",
 
     "canonical_feature_list_path": None,
 
-    "checkpoint_dir": "PATH/TO/checkpoints",
-    "checkpoint_glob": "*.pt",
+    "checkpoint_dir": "Z:/Bloodcounts/FBC-Transformer/artifacts/blood_foundation_v2_20260421_080320/checkpoints",
+    "checkpoint_glob": "best_model.pt",
 
-    "output_dir": "PATH/TO/output_ferritin_low_label",
+    "output_dir": "Z:/Bloodcounts/FBC-Transformer/finetunningOutput/output_ferritin_low_label",
 
     "model_hparams": {
         "d_model": 128,
