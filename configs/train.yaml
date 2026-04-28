@@ -18,3 +18,6 @@ objective:
   masking_ratio: 0.15
   min_masked_features: 1
   reconstruction_loss_weight: 1.0
+  contrastive_loss_weight: 0.5
+  corruption_ratio: 0.3
+  temperature: 0.1

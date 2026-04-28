@@ -414,6 +414,7 @@ def run() -> None:
         masking_ratio=cfg.objective.masking_ratio,
         min_masked_features=cfg.objective.min_masked_features,
         seed=cfg.experiment.seed,
+        corruption_ratio=cfg.objective.corruption_ratio,
     )
 
     val_collator = MaskedModelingCollator(
@@ -421,6 +422,7 @@ def run() -> None:
         masking_ratio=cfg.objective.masking_ratio,
         min_masked_features=cfg.objective.min_masked_features,
         seed=cfg.experiment.seed + 1,
+        corruption_ratio=cfg.objective.corruption_ratio,
     )
 
     train_loader = DataLoader(
@@ -455,6 +457,8 @@ def run() -> None:
     # 6. Objectives + optimizer + scheduler
     objective_manager = ObjectiveManager(
         reconstruction_loss_weight=cfg.objective.reconstruction_loss_weight,
+        contrastive_loss_weight=cfg.objective.contrastive_loss_weight,
+        temperature=cfg.objective.temperature,
     )
 
     optimizer = build_optimizer(

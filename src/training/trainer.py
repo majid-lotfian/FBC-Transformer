@@ -17,10 +17,12 @@ class EpochHistory:
     train_loss: List[float] = field(default_factory=list)
     train_reconstruction_loss: List[float] = field(default_factory=list)
     train_reconstruction_mae: List[float] = field(default_factory=list)
+    train_contrastive_loss: List[float] = field(default_factory=list)
 
     val_loss: List[float] = field(default_factory=list)
     val_reconstruction_loss: List[float] = field(default_factory=list)
     val_reconstruction_mae: List[float] = field(default_factory=list)
+    val_contrastive_loss: List[float] = field(default_factory=list)
 
 
 def _average_metrics(step_outputs: List[Dict[str, float]]) -> Dict[str, float]:
@@ -36,19 +38,9 @@ def _average_metrics(step_outputs: List[Dict[str, float]]) -> Dict[str, float]:
 
 class Trainer:
     """
-    High-level training loop manager for v1 masked-feature-modeling pretraining.
+    High-level training loop for masked reconstruction + contrastive pretraining.
     """
 
-    '''def __init__(
-        self,
-        *,
-        model: torch.nn.Module,
-        objective_manager,
-        optimizer: torch.optim.Optimizer,
-        device: torch.device,
-        grad_clip_norm: Optional[float] = None,
-        scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
-    ) -> None:'''
     def __init__(
         self,
         *,
@@ -72,7 +64,6 @@ class Trainer:
 
         self.model.to(self.device)
 
-    
     def _save_checkpoint(
         self,
         path: Path,
@@ -88,10 +79,7 @@ class Trainer:
             "best_val_loss": best_val_loss,
         }
         torch.save(checkpoint, path)
-    
-    
-    
-    
+
     def train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
         step_outputs: List[Dict[str, float]] = []
 
@@ -111,6 +99,7 @@ class Trainer:
             progress_bar.set_postfix(
                 loss=f"{metrics['loss']:.4f}",
                 recon=f"{metrics['reconstruction_loss']:.4f}",
+                contrast=f"{metrics['contrastive_loss']:.4f}",
                 mae=f"{metrics['reconstruction_mae']:.4f}",
             )
 
@@ -138,6 +127,7 @@ class Trainer:
             progress_bar.set_postfix(
                 loss=f"{metrics['loss']:.4f}",
                 recon=f"{metrics['reconstruction_loss']:.4f}",
+                contrast=f"{metrics['contrastive_loss']:.4f}",
                 mae=f"{metrics['reconstruction_mae']:.4f}",
             )
 
@@ -160,6 +150,7 @@ class Trainer:
             print(
                 f"Train | loss={train_metrics.get('loss', float('nan')):.4f} | "
                 f"recon={train_metrics.get('reconstruction_loss', float('nan')):.4f} | "
+                f"contrast={train_metrics.get('contrastive_loss', float('nan')):.4f} | "
                 f"mae={train_metrics.get('reconstruction_mae', float('nan')):.4f}"
             )
 
@@ -170,8 +161,10 @@ class Trainer:
             history.train_reconstruction_mae.append(
                 train_metrics.get("reconstruction_mae", float("nan"))
             )
+            history.train_contrastive_loss.append(
+                train_metrics.get("contrastive_loss", float("nan"))
+            )
 
-            
             if val_loader is not None:
                 val_metrics = self.validate_epoch(val_loader)
                 current_val_loss = val_metrics.get("loss", float("nan"))
@@ -179,6 +172,7 @@ class Trainer:
                 print(
                     f"Val   | loss={current_val_loss:.4f} | "
                     f"recon={val_metrics.get('reconstruction_loss', float('nan')):.4f} | "
+                    f"contrast={val_metrics.get('contrastive_loss', float('nan')):.4f} | "
                     f"mae={val_metrics.get('reconstruction_mae', float('nan')):.4f}"
                 )
 
@@ -188,6 +182,9 @@ class Trainer:
                 )
                 history.val_reconstruction_mae.append(
                     val_metrics.get("reconstruction_mae", float("nan"))
+                )
+                history.val_contrastive_loss.append(
+                    val_metrics.get("contrastive_loss", float("nan"))
                 )
 
                 if current_val_loss < best_val_loss:
@@ -199,29 +196,12 @@ class Trainer:
                             best_val_loss=best_val_loss,
                         )
                         print(f"Saved new best checkpoint to {self.best_checkpoint_path}")
-            
+
             if self.last_checkpoint_path is not None:
                 self._save_checkpoint(
                     self.last_checkpoint_path,
                     epoch=epoch,
                     best_val_loss=best_val_loss if val_loader is not None else None,
                 )
-            
-            
-            '''if val_loader is not None:
-                val_metrics = self.validate_epoch(val_loader)
-                print(
-                    f"Val   | loss={val_metrics.get('loss', float('nan')):.4f} | "
-                    f"recon={val_metrics.get('reconstruction_loss', float('nan')):.4f} | "
-                    f"mae={val_metrics.get('reconstruction_mae', float('nan')):.4f}"
-                )
-
-                history.val_loss.append(val_metrics.get("loss", float("nan")))
-                history.val_reconstruction_loss.append(
-                    val_metrics.get("reconstruction_loss", float("nan"))
-                )
-                history.val_reconstruction_mae.append(
-                    val_metrics.get("reconstruction_mae", float("nan"))
-                )'''
 
         return history

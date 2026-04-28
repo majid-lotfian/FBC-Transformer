@@ -8,5 +8,5 @@ model:
   pooling_type: mean
 
   regression_head_hidden_dim: null
-  projection_dim: null
-  projection_hidden_dim: null
+  projection_dim: 64
+  projection_hidden_dim: 128

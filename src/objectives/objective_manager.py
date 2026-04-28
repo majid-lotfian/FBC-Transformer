@@ -3,6 +3,8 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from .contrastive import NTXentLoss
+
 
 class MaskedMSELoss(nn.Module):
     """
@@ -69,18 +71,23 @@ class MaskedMAEMetric(nn.Module):
 
 class ObjectiveManager:
     """
-    Bridges batch -> model inputs -> masked reconstruction loss/metrics.
+    Bridges batch -> model inputs -> masked reconstruction + contrastive loss.
     """
 
-    def __init__(self, reconstruction_loss_weight: float = 1.0) -> None:
+    def __init__(
+        self,
+        reconstruction_loss_weight: float = 1.0,
+        contrastive_loss_weight: float = 0.0,
+        temperature: float = 0.1,
+    ) -> None:
         self.reconstruction_loss_weight = reconstruction_loss_weight
+        self.contrastive_loss_weight = contrastive_loss_weight
         self.reconstruction_loss_fn = MaskedMSELoss(reduction="mean")
         self.reconstruction_mae_fn = MaskedMAEMetric()
+        self.contrastive_loss_fn = NTXentLoss(temperature=temperature)
 
     def get_model_inputs(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """
-        Extract the exact inputs expected by TabularFoundationModel.forward().
-        """
+        """Inputs for the masked reconstruction forward pass."""
         return {
             "feature_ids": batch["feature_ids"],
             "values": batch["values"],
@@ -88,16 +95,29 @@ class ObjectiveManager:
             "input_mask": batch["input_mask"],
         }
 
+    def get_scarf_inputs(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Inputs for the SCARF-corrupted contrastive forward pass."""
+        return {
+            "feature_ids": batch["feature_ids"],
+            "values": batch["scarf_values"],
+            "observed_mask": batch["observed_mask"],
+            "input_mask": batch["observed_mask"],   # all observed features visible
+        }
+
     def compute_total_loss(
         self,
-        model_outputs: dict[str, torch.Tensor],
+        model_outputs_1: dict[str, torch.Tensor],
+        model_outputs_2: dict[str, torch.Tensor],
         batch: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """
-        Compute total loss and reporting metrics.
+        Compute total loss combining masked reconstruction and contrastive terms.
+
+        model_outputs_1: from masked view (used for reconstruction)
+        model_outputs_2: from SCARF-corrupted view (used for contrastive)
         """
-        predictions = model_outputs["reconstruction"]      # [B, F]
-        targets = batch["masked_targets"]                  # [B, F], NaN outside masked positions
+        predictions = model_outputs_1["reconstruction"]    # [B, F]
+        targets = batch["masked_targets"]                  # [B, F]
         prediction_mask = batch["prediction_mask"]         # [B, F]
 
         reconstruction_loss = self.reconstruction_loss_fn(
@@ -114,8 +134,17 @@ class ObjectiveManager:
 
         total_loss = self.reconstruction_loss_weight * reconstruction_loss
 
+        z1 = model_outputs_1.get("projection")
+        z2 = model_outputs_2.get("projection")
+        contrastive_loss = reconstruction_loss.new_zeros(1).squeeze()
+
+        if self.contrastive_loss_weight > 0.0 and z1 is not None and z2 is not None:
+            contrastive_loss = self.contrastive_loss_fn(z1, z2)
+            total_loss = total_loss + self.contrastive_loss_weight * contrastive_loss
+
         return {
             "loss": total_loss,
             "reconstruction_loss": reconstruction_loss,
             "reconstruction_mae": reconstruction_mae,
+            "contrastive_loss": contrastive_loss,
         }

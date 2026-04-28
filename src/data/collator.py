@@ -54,6 +54,7 @@ class MaskedModelingCollator:
         min_masked_features: int = 1,
         seed: Optional[int] = None,
         deterministic: bool = False,
+        corruption_ratio: float = 0.3,
     ) -> None:
         if not feature_names:
             raise ValueError("feature_names must not be empty.")
@@ -61,6 +62,8 @@ class MaskedModelingCollator:
             raise ValueError("masking_ratio must be between 0 and 1.")
         if min_masked_features < 0:
             raise ValueError("min_masked_features must be >= 0.")
+        if not (0.0 <= corruption_ratio <= 1.0):
+            raise ValueError("corruption_ratio must be between 0 and 1.")
 
         self.feature_names = feature_names
         self.vocab = FeatureVocabulary(feature_names)
@@ -68,6 +71,7 @@ class MaskedModelingCollator:
         self.min_masked_features = min_masked_features
         self.seed = seed if seed is not None else 0
         self.deterministic = deterministic
+        self.corruption_ratio = corruption_ratio
 
         self.generator = torch.Generator()
         if seed is not None:
@@ -193,6 +197,42 @@ class MaskedModelingCollator:
     
         return prediction_mask
 
+    def _build_scarf_view(
+        self,
+        values: torch.Tensor,
+        observed_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        SCARF corruption: for each sample, replace corruption_ratio of its
+        observed features with values from a randomly picked donor sample.
+
+        values:        [B, F] — zero-filled where unobserved
+        observed_mask: [B, F] — which values were originally present
+        Returns:       [B, F] — corrupted values
+        """
+        B, F = values.shape
+        corrupted = values.clone()
+
+        if B < 2 or self.corruption_ratio == 0.0:
+            return corrupted
+
+        for i in range(B):
+            observed_indices = torch.where(observed_mask[i])[0]
+            n_observed = int(observed_indices.numel())
+            if n_observed == 0:
+                continue
+
+            n_corrupt = max(1, int(round(n_observed * self.corruption_ratio)))
+            n_corrupt = min(n_corrupt, n_observed)
+
+            perm = torch.randperm(n_observed, generator=self.generator)
+            corrupt_indices = observed_indices[perm[:n_corrupt]]
+
+            j = (i + 1 + int(torch.randint(B - 1, (1,), generator=self.generator).item())) % B
+            corrupted[i, corrupt_indices] = values[j, corrupt_indices]
+
+        return corrupted
+
     def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not batch:
             raise ValueError("Batch is empty.")
@@ -224,6 +264,8 @@ class MaskedModelingCollator:
         masked_targets = torch.full_like(values, float("nan"))
         masked_targets[prediction_mask] = values[prediction_mask]
 
+        scarf_values = self._build_scarf_view(values, observed_mask)
+
         sample_ids = [item.get("sample_id") for item in batch]
         cohort_names = [item.get("cohort_name") for item in batch]
 
@@ -235,6 +277,7 @@ class MaskedModelingCollator:
             "input_mask": input_mask,               # [B, F]
             "prediction_mask": prediction_mask,     # [B, F]
             "masked_targets": masked_targets,       # [B, F]
+            "scarf_values": scarf_values,           # [B, F] SCARF-corrupted values
             "feature_names": self.feature_names,
             "sample_ids": sample_ids,
             "cohort_names": cohort_names,

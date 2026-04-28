@@ -32,26 +32,17 @@ def train_step(
     model.train()
     batch = move_batch_to_device(batch, device)
 
-    model_inputs = objective_manager.get_model_inputs(batch)
-
-
-
-
-
-
-    
     optimizer.zero_grad(set_to_none=True)
 
-    model_outputs = model(**model_inputs)
+    model_inputs_1 = objective_manager.get_model_inputs(batch)
+    model_outputs_1 = model(**model_inputs_1)
 
+    model_inputs_2 = objective_manager.get_scarf_inputs(batch)
+    model_outputs_2 = model(**model_inputs_2)
 
-
-    objective_outputs = objective_manager.compute_total_loss(model_outputs, batch)
+    objective_outputs = objective_manager.compute_total_loss(model_outputs_1, model_outputs_2, batch)
 
     loss = objective_outputs["loss"]
-
-
-
     loss.backward()
 
     if grad_clip_norm is not None:
@@ -65,24 +56,6 @@ def train_step(
     }
 
 
-'''@torch.no_grad()
-def validation_step(
-    model: nn.Module,
-    batch: Dict,
-    objective_manager: ObjectiveManager,
-    device: torch.device,
-) -> Dict[str, float]:
-    model.eval()
-    batch = move_batch_to_device(batch, device)
-
-    model_inputs = objective_manager.get_model_inputs(batch)
-    model_outputs = model(**model_inputs)
-    objective_outputs = objective_manager.compute_total_loss(model_outputs, batch)
-
-    return {
-        key: float(value.detach().cpu().item())
-        for key, value in objective_outputs.items()
-    }'''
 @torch.no_grad()
 def validation_step(
     model: nn.Module,
@@ -93,11 +66,14 @@ def validation_step(
     model.eval()
     batch = move_batch_to_device(batch, device)
 
-    model_inputs = objective_manager.get_model_inputs(batch)
-    model_outputs = model(**model_inputs)
-    objective_outputs = objective_manager.compute_total_loss(model_outputs, batch)
+    model_inputs_1 = objective_manager.get_model_inputs(batch)
+    model_outputs_1 = model(**model_inputs_1)
 
-    # TEMP DEBUG: catch rare exploding validation batches
+    model_inputs_2 = objective_manager.get_scarf_inputs(batch)
+    model_outputs_2 = model(**model_inputs_2)
+
+    objective_outputs = objective_manager.compute_total_loss(model_outputs_1, model_outputs_2, batch)
+
     loss_value = float(objective_outputs["loss"].detach().cpu().item())
     if loss_value > 1000:
         print("\n=== EXTREME VALIDATION BATCH DETECTED ===")
@@ -111,7 +87,7 @@ def validation_step(
             float(objective_outputs["reconstruction_mae"].detach().cpu().item()),
         )
 
-        preds = model_outputs["reconstruction"]
+        preds = model_outputs_1["reconstruction"]
         targets = batch["masked_targets"]
         prediction_mask = batch["prediction_mask"]
 
