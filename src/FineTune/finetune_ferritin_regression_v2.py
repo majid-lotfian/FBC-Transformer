@@ -52,7 +52,7 @@ CONFIG = {
     "canonical_feature_list_path": None,
 
     # ---- UPDATE to your v3 checkpoint directory ----
-    "checkpoint_dir": "Z:/Bloodcounts/FBC-Transformer/artifacts/blood_foundation_v3_XXXXXXXX/checkpoints",
+    "checkpoint_dir": "Z:/Bloodcounts/FBC-Transformer/artifacts/blood_foundation_v3_20260428_121932/checkpoints",
     "checkpoint_glob": "best_model.pt",
 
     "output_dir": "Z:/Bloodcounts/FBC-Transformer/finetunningOutput/output_ferritin_v2",
